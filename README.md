@@ -7,8 +7,17 @@ Keuanganku adalah aplikasi pencatat pengeluaran bertenaga AI yang dirancang untu
 ### Dashboard Utama
 ![Dashboard Utama](public/dashboard.png)
 
-### WhatsApp Bot Assistant
-![WhatsApp Bot Assistant](public/whatsapp_bot.png)
+### Integrasi WhatsApp Bot
+![WhatsApp Bot](public/whatsapp_bot.png)
+
+### Asisten Keuangan AI (Gemini)
+![AI Chat](public/ai_chat.png)
+
+### Fitur Cetak Laporan & Struk
+![Print Preview](public/print_preview.png)
+
+### Sistem Validasi Dokumen
+![Validation Page](public/validation_page.png)
 
 ## 🚀 Fitur Utama
 
