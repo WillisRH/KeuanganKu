@@ -63,4 +63,4 @@ Keuanganku adalah aplikasi pencatat pengeluaran bertenaga AI yang dirancang untu
 Proyek ini dibuat untuk tujuan pembelajaran. Silakan gunakan dan modifikasi sesuai kebutuhan.
 
 ---
-*Dibuat dengan ❤️ untuk manajemen keuangan yang lebih baik.*
+*Dibuat dengan ❤️ serta **Vibe Code** dan menggunakan **Google Antigravity** untuk manajemen keuangan yang lebih baik.*

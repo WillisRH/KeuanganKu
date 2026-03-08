@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import prisma from '../lib/prisma';
+import prisma from '@/lib/prisma';
 import ExpenseTable from './ExpenseDashboard';
 
 export const metadata: Metadata = {
