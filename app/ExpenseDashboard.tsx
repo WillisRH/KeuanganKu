@@ -259,7 +259,8 @@ export default function ExpenseTable({ expenses }: { expenses: Expense[] }) {
   const ITEMS_PER_PAGE          = 10;
   const [mounted, setMounted]   = useState(false);
   const [selected, setSelected] = useState<Expense|null>(null);
-  const [tab, setTab]           = useState<'list'|'chart'>('list');
+  const [tab, setTab]           = useState<'list'|'chart'|'calendar'>('list');
+  const [calDate, setCalDate]   = useState(new Date());
   const [pulse, setPulse]       = useState(false);
   const [printId, setPrintId]   = useState<string|null>(null);
   const [monthlyPrintId, setMonthlyPrintId] = useState<string|null>(null);
@@ -430,6 +431,28 @@ export default function ExpenseTable({ expenses }: { expenses: Expense[] }) {
       m[k][e.type==='income'?'income':'expense'] += e.amount;
     });
     return Object.entries(m).map(([name,v])=>({name,...v})).slice(-6);
+  }, [data]);
+
+  const calDays = useMemo(() => {
+    const year = calDate.getFullYear();
+    const month = calDate.getMonth();
+    const firstDay = new Date(year, month, 1).getDay();
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+    const days = [];
+    for (let i = 0; i < firstDay; i++) days.push(null);
+    for (let d = 1; d <= daysInMonth; d++) days.push(new Date(year, month, d));
+    return days;
+  }, [calDate]);
+
+  const dailySummary = useMemo(() => {
+    const summary: Record<string, { inc: number, exp: number }> = {};
+    data.forEach(e => {
+      const d = new Date(e.createdAt).toISOString().slice(0, 10);
+      if (!summary[d]) summary[d] = { inc: 0, exp: 0 };
+      if (e.type === 'income') summary[d].inc += e.amount;
+      else summary[d].exp += e.amount;
+    });
+    return summary;
   }, [data]);
 
   const top3 = useMemo(() => [...data].filter(e=>e.type==='expense').sort((a,b)=>b.amount-a.amount).slice(0,3), [data]);
@@ -788,9 +811,9 @@ export default function ExpenseTable({ expenses }: { expenses: Expense[] }) {
         {/* ── TABS + FILTER ── */}
         <div className="np" style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:'1rem', flexWrap:'wrap', gap:10 }}>
           <div style={{ display:'flex', gap:3, background:t.surface, border:`1px solid ${t.border}`, borderRadius:12, padding:4 }}>
-            {(['list','chart'] as const).map(v => (
+            {(['list', 'chart', 'calendar'] as const).map(v => (
               <button key={v} className={`tab ${tab===v?'on':''}`} onClick={()=>setTab(v)}>
-                {v==='list'?'📋 Transaksi':'📊 Grafik'}
+                {v==='list'?'📋 Transaksi':v==='chart'?'📊 Grafik':'📅 Kalender'}
               </button>
             ))}
           </div>
@@ -894,6 +917,76 @@ export default function ExpenseTable({ expenses }: { expenses: Expense[] }) {
               }
             </div>
           </div>
+        )}
+
+        {/* ══════════════ CALENDAR TAB ══════════════ */}
+        {tab === 'calendar' && (
+           <div className="sc" style={{ background:t.surface, border:`1px solid ${t.border}`, borderRadius:16, padding:'clamp(15px,4vw,20px)', boxShadow:t.shad2, marginBottom:'1.5rem', minWidth:0, overflow:'hidden' }}>
+              <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'1.2rem', gap:10 }}>
+                <h3 style={{ fontSize:'clamp(0.85rem,3vw,1rem)', fontWeight:800, color:t.text, textTransform:'capitalize', margin:0 }}>
+                  {calDate.toLocaleString('id-ID', { month: 'long', year: 'numeric' })}
+                </h3>
+                <div style={{ display:'flex', gap:6, flexShrink:0 }}>
+                  <button onClick={() => setCalDate(new Date(calDate.getFullYear(), calDate.getMonth() - 1, 1))}
+                    title="Bulan Sebelumnya"
+                    style={{ background:t.surf2, border:`1px solid ${t.border}`, borderRadius:8, width:32, height:32, cursor:'pointer', color:t.text, display:'flex', alignItems:'center', justifyContent:'center', transition:'all .2s' }}>←</button>
+                  <button onClick={() => setCalDate(new Date())}
+                    title="Bulan Ini"
+                    style={{ background:t.surf2, border:`1px solid ${t.border}`, borderRadius:8, padding:'0 10px', height:32, cursor:'pointer', color:t.text, fontSize:'0.7rem', fontWeight:700, transition:'all .2s' }}>Hari Ini</button>
+                  <button onClick={() => setCalDate(new Date(calDate.getFullYear(), calDate.getMonth() + 1, 1))}
+                    title="Bulan Berikutnya"
+                    style={{ background:t.surf2, border:`1px solid ${t.border}`, borderRadius:8, width:32, height:32, cursor:'pointer', color:t.text, display:'flex', alignItems:'center', justifyContent:'center', transition:'all .2s' }}>→</button>
+                </div>
+              </div>
+
+              <div style={{ display:'grid', gridTemplateColumns:'repeat(7, 1fr)', gap:'clamp(2px,1vw,6px)' }}>
+                {['Min','Sen','Sel','Rab','Kam','Jum','Sab'].map((d,idx) => (
+                  <div key={d} style={{ textAlign:'center', fontSize:'0.6rem', fontWeight:800, color:idx===0?t.red:t.sub, opacity:0.6, paddingBottom:6, textTransform:'uppercase' }}>{d}</div>
+                ))}
+                {calDays.map((date, i) => {
+                  if (!date) return <div key={`empty-${i}`} style={{ aspectRatio:'1/1' }}/>;
+                  
+                  const dStr = date.toISOString().slice(0,10);
+                  const summary = dailySummary[dStr];
+                  const isToday = new Date().toISOString().slice(0,10) === dStr;
+                  const dayNum = date.getDate();
+
+                  return (
+                    <div key={dStr} className="cal-day" style={{ 
+                      aspectRatio:'1/1', border:`1px solid ${isToday ? t.accent : t.border}`, 
+                      borderRadius:10, padding:' clamp(2px,1vw,6px)', display:'flex', flexDirection:'column', justifyContent:'space-between',
+                      background: isToday ? t.accent+'08' : t.surf2,
+                      position:'relative', transition:'transform .2s, box-shadow .2s',
+                    }}>
+                      <span style={{ fontSize:'clamp(0.65rem,2vw,0.78rem)', fontWeight:800, color: isToday ? t.accent : t.text, opacity: isToday?1:0.8 }}>{dayNum}</span>
+                      <div style={{ display:'flex', flexDirection:'column', gap:1, alignItems:'flex-end', overflow:'hidden' }}>
+                        {summary?.inc > 0 && (
+                          <span style={{ fontSize:'clamp(0.48rem,1.5vw,0.6rem)', fontWeight:800, color:t.green, whiteSpace:'nowrap' }}>
+                            <span className="dsk-inline">+{fmtS(summary.inc).replace('Rp ','')}</span>
+                            <span className="mob-inline">+{fmtS(summary.inc).replace('Rp ','').replace(/\.000$/,'rb').replace('000rb','jt').replace('000jt','M')}</span>
+                          </span>
+                        )}
+                        {summary?.exp > 0 && (
+                          <span style={{ fontSize:'clamp(0.48rem,1.5vw,0.6rem)', fontWeight:800, color:t.red, whiteSpace:'nowrap' }}>
+                            <span className="dsk-inline">-{fmtS(summary.exp).replace('Rp ','')}</span>
+                            <span className="mob-inline">-{fmtS(summary.exp).replace('Rp ','').replace(/\.000$/,'rb').replace('000rb','jt').replace('000jt','M')}</span>
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+              <style jsx>{`
+                .cal-day:hover { transform: scale(1.05); z-index: 2; box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
+                .dsk-inline { display: inline; }
+                .mob-inline { display: none; }
+                @media (max-width: 600px) {
+                  .dsk-inline { display: none; }
+                  .mob-inline { display: inline; }
+                }
+              `}</style>
+           </div>
         )}
 
         {/* ══════════════ LIST TAB ══════════════ */}
