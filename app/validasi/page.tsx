@@ -248,6 +248,10 @@ function ValidationContent() {
 
   const [loading, setLoading] = useState(true);
   const [result,  setResult]  = useState<any>(null);
+
+  useEffect(() => {
+    document.title = "Validasi Struk | Keuanganku";
+  }, []);
   const [error,   setError]   = useState<string|null>(null);
   const [dark,    setDark]    = useState(false);
 
