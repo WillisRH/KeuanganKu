@@ -1,0 +1,43 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../node_modules/.prisma/client-custom"
+}
+
+model Expense {
+  id          String   @id @default(uuid())
+  amount      Float
+  item        String
+  quantity    Int?
+  description String
+  category    String   @default("lainnya")
+  rawInput    String
+  source      String   @default("whatsapp")
+  type        String   @default("expense")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  PrintLogs   PrintLog[]
+}
+
+model PrintLog {
+  id         String   @id @default(uuid())
+  expenseId  String?
+  expense    Expense? @relation(fields: [expenseId], references: [id])
+  type       String   @default("receipt") // "receipt" or "monthly"
+  printId    String   @unique
+  metadata   String?  // JSON string
+  createdAt  DateTime @default(now())
+}
+
+model Budget {
+  id        String   @id @default(uuid())
+  category  String   @unique // Target budget is per-category
+  amount    Float    // Limit nominal
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
