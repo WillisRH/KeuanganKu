@@ -14,8 +14,12 @@ UNTUK HURUF AWAL, HARUS KAPITAL!
 Format:
 [{"intent":"record"|"query"|"set_budget","item":"Nama/Teks","quantity":null|angka,"amount":angka,"description":"Ket","category":"Kategori","type":"expense"|"income"}]
 
+PENTING TENTANG "description": 
+- Isi dengan keterangan murni produk, merk, atau detail barang/transaksi (misal: "Indomie Goreng", "Bensin Shell", "Gaji Pokok").
+- DILARANG KERAS memasukkan peringatan anggaran, status overbudget, atau saran finansial ke dalam field "description".
+
 PENTING TENTANG TARGET ANGGARAN:
-1. Peringatkan pengguna di "description" jika kamu mendeteksi pengeluaran ini membuat kategori tersebut hampir overbudget atau sudah OVERBUDGET berdasar data yang diberikan.
+1. Jika pengeluaran membuat kategori hampir overbudget atau sudah OVERBUDGET, JANGAN masukkan di "description". Peringatan ini harus kamu sampaikan secara terpisah atau abaikan saja (biar sistem lain yang menangani).
 2. Jika intent adalah "set_budget", targetkan property "category" untuk kategori dan "amount" untuk limitnya, serta "description" untuk balasan ucapan konfirmasi.`;
 
 // Menyimpan status konfirmasi transaksi per nomor WA
@@ -59,6 +63,9 @@ client.on('message', async msg => {
     const rawInput = msg.body;
     console.log(`[+] Pesan masuk dari ${msg.from}: ${rawInput} (Media: ${msg.hasMedia})`);
 
+    const currentMonth = new Date().getMonth();
+    const currentYear = new Date().getFullYear();
+
     try {
         // Cek apakah ada konfirmasi yang tertunda
         if (pendingConfirmations.has(msg.from) && !msg.hasMedia) {
@@ -74,9 +81,20 @@ client.on('message', async msg => {
                         if (p.intent === 'set_budget') {
                             const cat = p.category.toLowerCase().trim();
                             return prisma.budget.upsert({
-                                where: { category: cat },
+                                where: { 
+                                    category_month_year: {
+                                        category: cat,
+                                        month: currentMonth + 1,
+                                        year: currentYear
+                                    }
+                                },
                                 update: { amount: parseFloat(p.amount) },
-                                create: { category: cat, amount: parseFloat(p.amount) }
+                                create: { 
+                                    category: cat, 
+                                    amount: parseFloat(p.amount),
+                                    month: currentMonth + 1,
+                                    year: currentYear
+                                }
                             });
                         } else {
                             return prisma.expense.create({
@@ -95,10 +113,41 @@ client.on('message', async msg => {
                     })
                 );
                 
+                // Fetch updated state for warnings
+                const [allBudgets, allExpenses] = await Promise.all([
+                    prisma.budget.findMany({ where: { month: currentMonth + 1, year: currentYear } }),
+                    prisma.expense.findMany()
+                ]);
+
+                const thisMonthExpenses = allExpenses.filter((e: any) => new Date(e.createdAt).getMonth() === currentMonth && new Date(e.createdAt).getFullYear() === currentYear && e.type === 'expense');
+                const spentPerCat: Record<string, number> = {};
+                for (const exp of thisMonthExpenses) {
+                    const cat = exp.category.toLowerCase().trim();
+                    spentPerCat[cat] = (spentPerCat[cat] || 0) + exp.amount;
+                }
+
+                const totalIncome = allExpenses.filter(e => e.type === 'income').reduce((sum, e) => sum + e.amount, 0);
+                const totalExpense = allExpenses.filter(e => e.type === 'expense').reduce((sum, e) => sum + e.amount, 0);
+                const netBalance = totalIncome - totalExpense;
+
+                const warnings: string[] = [];
+                for (const b of allBudgets) {
+                    const spent = spentPerCat[b.category.toLowerCase()] || 0;
+                    if (spent >= b.amount) {
+                        warnings.push(`🆘 *OVERBUDGET:* ${b.category} (Limit Rp ${b.amount.toLocaleString('id-ID')})`);
+                    } else if (spent >= b.amount * 0.8) {
+                        warnings.push(`⚠️ *HAMPIR PENUH:* ${b.category} (Sudah 80%+)`);
+                    }
+                }
+
+                if (netBalance < 0) {
+                    warnings.push(`🆘 *SALDO MINUS!* (Rp ${netBalance.toLocaleString('id-ID')})`);
+                }
+
                 const msgLines = itemsToSave.map(e => `- ${e.intent === 'set_budget' ? `Target ${e.category}` : e.item}: Rp ${parseFloat(e.amount).toLocaleString('id-ID')}`).join('\n');
                 
                 console.log(`[+] Berhasil disimpan via konfirmasi: ${itemsToSave.length} records`);
-                msg.reply(`✅ *${itemsToSave.length} Permintaan Berhasil Dicatat*\n\n${msgLines}`);
+                msg.reply(`✅ *${itemsToSave.length} Permintaan Berhasil Dicatat*\n\n${msgLines}${warnings.length > 0 ? `\n\n${warnings.join('\n')}` : ''}`);
                 
                 pendingConfirmations.delete(msg.from);
                 return;
@@ -116,8 +165,6 @@ client.on('message', async msg => {
         let finalRawInput = rawInput;
 
         // Fetch context for budgets
-        const currentMonth = new Date().getMonth();
-        const currentYear = new Date().getFullYear();
         const [allBudgets, allExpenses] = await Promise.all([
             prisma.budget.findMany(),
             prisma.expense.findMany({
@@ -238,7 +285,7 @@ Jawab singkat, akurat berdasar data di atas.`;
             pendingConfirmations.set(msg.from, itemsToConfirm);
 
             const aiReplyDesc = validRecords.map(p => p.description).filter(Boolean).join('\n');
-            const confirmMsgLines = itemsToConfirm.map((p, idx) => `${idx+1}. ${p.intent === 'set_budget' ? '[BUDGET]' : '[CATAT PENGELUARAN]'} ${p.item} (Rp ${parseFloat(p.amount).toLocaleString('id-ID')})`).join('\n');
+            const confirmMsgLines = itemsToConfirm.map((p, idx) => `${idx+1}. ${p.intent === 'set_budget' ? '[BUDGET]' : '[CATAT]'} ${p.item} (Rp ${parseFloat(p.amount).toLocaleString('id-ID')})`).join('\n');
             const confirmMsg = `${aiReplyDesc ? `\n💬 *Ai:* _${aiReplyDesc}_\n` : ''}\n*Konfirmasi ${itemsToConfirm.length} Tindakan*\n\n${confirmMsgLines}\n\nKetik *Y* untuk eksekusi, atau *Batal* untuk mengabaikan.`;
             msg.reply(confirmMsg);
         } else {
@@ -258,14 +305,47 @@ Jawab singkat, akurat berdasar data di atas.`;
                 }))
             );
 
+            // Fetch updated state for warnings
+            const [allBudgets, allExpenses] = await Promise.all([
+                prisma.budget.findMany({ where: { month: currentMonth + 1, year: currentYear } }),
+                prisma.expense.findMany()
+            ]);
+
+            const thisMonthExpenses = allExpenses.filter((e: any) => 
+                new Date(e.createdAt).getMonth() === currentMonth && 
+                new Date(e.createdAt).getFullYear() === currentYear && 
+                e.type === 'expense'
+            );
+
+            const spentPerCat: Record<string, number> = {};
+            for (const exp of thisMonthExpenses) {
+                const cat = exp.category.toLowerCase().trim();
+                spentPerCat[cat] = (spentPerCat[cat] || 0) + exp.amount;
+            }
+
+            const totalIncome = allExpenses.filter(e => e.type === 'income').reduce((sum, e) => sum + e.amount, 0);
+            const totalExpense = allExpenses.filter(e => e.type === 'expense').reduce((sum, e) => sum + e.amount, 0);
+            const netBalance = totalIncome - totalExpense;
+
+            const warnings: string[] = [];
+            for (const b of allBudgets) {
+                const spent = spentPerCat[b.category.toLowerCase()] || 0;
+                if (spent >= b.amount) {
+                    warnings.push(`🆘 *OVERBUDGET:* ${b.category} (Limit Rp ${b.amount.toLocaleString('id-ID')})`);
+                } else if (spent >= b.amount * 0.8) {
+                    warnings.push(`⚠️ *HAMPIR PENUH:* ${b.category} (Sudah 80%+)`);
+                }
+            }
+
+            if (netBalance < 0) {
+                warnings.push(`🆘 *SALDO MINUS!* (Rp ${netBalance.toLocaleString('id-ID')})`);
+            }
+
             const totalSaved = expenses.reduce((sum, e) => sum + e.amount, 0);
             const msgLines = expenses.map(e => `- ${e.item}: Rp ${e.amount.toLocaleString('id-ID')} [${e.type.toUpperCase()}]`).join('\n');
             
-            // Check descriptions to see if AI gave overbudget warnings
-            const aiWarnings = validRecords.map(p => p.description).filter(Boolean);
-            
             console.log(`[+] Berhasil disimpan bulk text: ${expenses.length} records`);
-            msg.reply(`✅ *${expenses.length} Transaksi Dicatat*\n\n${msgLines}\n\nTotal Nominal: Rp ${totalSaved.toLocaleString('id-ID')}${aiWarnings.length > 0 ? `\n\n📌 *Catatan:* ${aiWarnings.join(', ')}` : ''}`);
+            msg.reply(`✅ *${expenses.length} Transaksi Dicatat*\n\n${msgLines}\n\nTotal Nominal: Rp ${totalSaved.toLocaleString('id-ID')}${warnings.length > 0 ? `\n\n${warnings.join('\n')}` : ''}`);
         }
 
     } catch (error) {

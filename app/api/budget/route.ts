@@ -1,9 +1,17 @@
 import { NextResponse } from "next/server";
 import prisma from "../../../lib/prisma";
 
-export async function GET() {
+export async function GET(req: Request) {
   try {
-    const budgets = await prisma.budget.findMany();
+    const { searchParams } = new URL(req.url);
+    const month = parseInt(searchParams.get("month") || "");
+    const year = parseInt(searchParams.get("year") || "");
+
+    const where: any = {};
+    if (!isNaN(month)) where.month = month;
+    if (!isNaN(year)) where.year = year;
+
+    const budgets = await prisma.budget.findMany({ where });
     return NextResponse.json(budgets);
   } catch (error) {
     console.error("GET Budget Error:", error);
@@ -13,15 +21,28 @@ export async function GET() {
 
 export async function POST(req: Request) {
   try {
-    const { category, amount } = await req.json();
-    if (!category || amount === undefined) {
-      return NextResponse.json({ error: "Kategori dan nominal harus diisi" }, { status: 400 });
+    const { category, amount, month, year } = await req.json();
+    if (!category || amount === undefined || month === undefined || year === undefined) {
+      return NextResponse.json({ error: "Data tidak lengkap" }, { status: 400 });
     }
 
+    const cat = category.toLowerCase().trim();
+
     const budget = await prisma.budget.upsert({
-      where: { category: category.toLowerCase().trim() },
+      where: {
+        category_month_year: {
+          category: cat,
+          month: Number(month),
+          year: Number(year)
+        }
+      },
       update: { amount: Number(amount) },
-      create: { category: category.toLowerCase().trim(), amount: Number(amount) },
+      create: { 
+        category: cat, 
+        amount: Number(amount),
+        month: Number(month),
+        year: Number(year)
+      },
     });
 
     return NextResponse.json(budget);
@@ -35,12 +56,21 @@ export async function DELETE(req: Request) {
   try {
     const { searchParams } = new URL(req.url);
     const category = searchParams.get("category");
-    if (!category) {
-      return NextResponse.json({ error: "Kategori harus diisi" }, { status: 400 });
+    const month = parseInt(searchParams.get("month") || "");
+    const year = parseInt(searchParams.get("year") || "");
+
+    if (!category || isNaN(month) || isNaN(year)) {
+      return NextResponse.json({ error: "Parameter tidak lengkap" }, { status: 400 });
     }
 
     await prisma.budget.delete({
-      where: { category: category.toLowerCase().trim() },
+      where: {
+        category_month_year: {
+          category: category.toLowerCase().trim(),
+          month,
+          year
+        }
+      },
     });
 
     return NextResponse.json({ success: true });

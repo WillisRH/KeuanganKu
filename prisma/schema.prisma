@@ -35,9 +35,13 @@ model PrintLog {
 
 model Budget {
   id        String   @id @default(uuid())
-  category  String   @unique // Target budget is per-category
+  category  String   // Category name
   amount    Float    // Limit nominal
+  month     Int?     // 1-12
+  year      Int?     // e.g. 2024
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  @@unique([category, month, year])
 }
 

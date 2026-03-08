@@ -195,6 +195,31 @@ const SendIcon = () => (
     <line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>
   </svg>
 );
+const CameraIcon = () => (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/>
+  </svg>
+);
+const MicIcon = ({ size=16 }: { size?:number }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/>
+  </svg>
+);
+const ClipIcon = () => (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/>
+  </svg>
+);
+const StopIcon = () => (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+    <rect x="4" y="4" width="16" height="16" rx="2"/>
+  </svg>
+);
+const AlertIcon = ({ size=20 }: { size?:number }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
+  </svg>
+);
 
 // ─── Custom Chart Tooltip ─────────────────────────────────────────────────────
 const ChartTip = ({ active, payload, dark }: any) => {
@@ -234,7 +259,7 @@ const TypingMarkdown = ({ content, speed = 12, onUpdate, onComplete }: { content
     return () => clearInterval(interval);
   }, [content, speed]);
 
-  return <ReactMarkdown>{displayed}</ReactMarkdown>;
+  return <ReactMarkdown children={displayed} />;
 };
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -242,11 +267,11 @@ export default function ExpenseTable({ expenses }: { expenses: Expense[] }) {
   const [data, setData]         = useState<Expense[]>(expenses);
   const [budgets, setBudgets]   = useState<Budget[]>([]);
 
-  const loadData = async () => {
+  const loadData = async (vDate: Date = viewDate) => {
     try {
       const res = await getTransactions();
       setData(res);
-      const bRes = await fetch('/api/budget');
+      const bRes = await fetch(`/api/budget?month=${vDate.getMonth()+1}&year=${vDate.getFullYear()}`);
       if (bRes.ok) setBudgets(await bRes.json());
     } catch(err) { console.error(err); }
   };
@@ -260,10 +285,29 @@ export default function ExpenseTable({ expenses }: { expenses: Expense[] }) {
   const [mounted, setMounted]   = useState(false);
   const [selected, setSelected] = useState<Expense|null>(null);
   const [tab, setTab]           = useState<'list'|'chart'|'calendar'>('list');
-  const [calDate, setCalDate]   = useState(new Date());
+  const [viewDate, setViewDate] = useState(new Date());
   const [pulse, setPulse]       = useState(false);
   const [printId, setPrintId]   = useState<string|null>(null);
   const [monthlyPrintId, setMonthlyPrintId] = useState<string|null>(null);
+  const [calendarSelectedDay, setCalendarSelectedDay] = useState<Date|null>(null);
+
+  // Custom UI Notifications
+  const [toast, setToast] = useState<{msg:string, type:'success'|'error'|'info'}|null>(null);
+  const [confirmModal, setConfirmModal] = useState<{msg:string, onConfirm:()=>void}|null>(null);
+
+  const showToast = (msg:string, type:'success'|'error'|'info' = 'success') => {
+    setToast({ msg, type });
+    setTimeout(() => setToast(null), 3500);
+  };
+
+  useEffect(() => {
+    if (mounted) loadData(viewDate);
+    // Sync print dates with viewDate
+    const start = new Date(viewDate.getFullYear(), viewDate.getMonth(), 1);
+    const end = new Date(viewDate.getFullYear(), viewDate.getMonth() + 1, 0);
+    setPrintStartDate(start.toISOString().slice(0, 10));
+    setPrintEndDate(end.toISOString().slice(0, 10));
+  }, [viewDate]);
 
   // Print Settings State
   const [showPrintSettings, setShowPrintSettings] = useState(false);
@@ -290,7 +334,7 @@ export default function ExpenseTable({ expenses }: { expenses: Expense[] }) {
 
   // Chat State
   const [showChat, setShowChat] = useState(false);
-  const [chatMessages, setChatMessages] = useState<{role:'user'|'assistant', content:string, isTyped?:boolean, actionData?:Expense[], pendingBudget?:{category:string, amount:number, confirmed?:boolean}}[]>([
+  const [chatMessages, setChatMessages] = useState<{role:'user'|'assistant', content:string, isTyped?:boolean, actionData?:Expense[], budgetAlerts?: {category:string, limit:number, spent:number, status: 'danger'|'warning'}[], balanceAlert?: {balance:number}, pendingBudget?:{category:string, amount:number, confirmed?:boolean}}[]>([
     { role: 'assistant', content: (() => {
       const h = new Date().getHours();
       let g = 'Malam'; if (h < 11) g = 'Pagi'; else if (h < 15) g = 'Siang'; else if (h < 18) g = 'Sore';
@@ -301,31 +345,101 @@ export default function ExpenseTable({ expenses }: { expenses: Expense[] }) {
   const [isChatLoading, setIsChatLoading] = useState(false);
   const chatEndRef = useRef<HTMLDivElement>(null);
 
+  // Media upload state
+  type ChatFile = { file: File; preview: string; type: 'image'|'audio'|'pdf' };
+  const [chatFiles, setChatFiles] = useState<ChatFile[]>([]);
+  const [isRecording, setIsRecording] = useState(false);
+  const [recordDuration, setRecordDuration] = useState(0);
+  const mediaRecorderRef = useRef<MediaRecorder|null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+  const recordTimerRef = useRef<NodeJS.Timeout|null>(null);
+  const imageInputRef = useRef<HTMLInputElement>(null);
+  const pdfInputRef = useRef<HTMLInputElement>(null);
+
+  const addChatFile = (file: File, type: 'image'|'audio'|'pdf') => {
+    const preview = type === 'image' ? URL.createObjectURL(file) : '';
+    setChatFiles(prev => [...prev, { file, preview, type }]);
+  };
+  const removeChatFile = (idx: number) => {
+    setChatFiles(prev => { const n = [...prev]; if (n[idx]?.preview) URL.revokeObjectURL(n[idx].preview); n.splice(idx,1); return n; });
+  };
+
+  const startRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const recorder = new MediaRecorder(stream);
+      audioChunksRef.current = [];
+      recorder.ondataavailable = e => { if (e.data.size > 0) audioChunksRef.current.push(e.data); };
+      recorder.onstop = () => {
+        stream.getTracks().forEach(t => t.stop());
+        const blob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+        const file = new File([blob], `recording_${Date.now()}.webm`, { type: 'audio/webm' });
+        addChatFile(file, 'audio');
+        setIsRecording(false);
+        setRecordDuration(0);
+        if (recordTimerRef.current) clearInterval(recordTimerRef.current);
+      };
+      recorder.start();
+      mediaRecorderRef.current = recorder;
+      setIsRecording(true);
+      setRecordDuration(0);
+      recordTimerRef.current = setInterval(() => setRecordDuration(d => d + 1), 1000);
+    } catch (err) {
+      console.error('Mic access denied:', err);
+    }
+  };
+  const stopRecording = () => {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      mediaRecorderRef.current.stop();
+    }
+  };
+
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [chatMessages, isChatLoading, showChat]);
 
   const handleSendChat = async (e?: React.FormEvent) => {
     e?.preventDefault();
-    if (!chatInput.trim() || isChatLoading) return;
+    if ((!chatInput.trim() && chatFiles.length === 0) || isChatLoading) return;
 
-    const newMsgs: {role:'user'|'assistant', content:string, isTyped?:boolean, actionData?:Expense[]}[] = [
+    const fileMeta = chatFiles.map(f => ({ name: f.file.name, type: f.type, mimeType: f.file.type }));
+    const msgText = chatInput.trim() || (chatFiles.length > 0 ? `[Mengirim ${chatFiles.map(f => f.type === 'image' ? 'foto' : f.type === 'audio' ? 'audio' : 'PDF').join(', ')}]` : '');
+    const newMsgs = [
       ...chatMessages,
-      { role: 'user', content: chatInput.trim(), isTyped: true }
-    ];
+      { role: 'user', content: msgText, isTyped: true, files: fileMeta, filePreviews: chatFiles.map(f => ({ preview: f.preview, type: f.type, name: f.file.name })) }
+    ] as any[];
+    const filesToSend = [...chatFiles];
     setChatMessages(newMsgs);
     setChatInput('');
+    setChatFiles([]);
     setIsChatLoading(true);
 
     try {
-      const res = await fetch('/api/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ messages: newMsgs })
-      });
+      let res: Response;
+      if (filesToSend.length > 0) {
+        const formData = new FormData();
+        formData.append('messages', JSON.stringify(newMsgs.map(m => ({ role: m.role, content: m.content }))));
+        for (const f of filesToSend) {
+          formData.append('files', f.file);
+        }
+        res = await fetch('/api/chat', { method: 'POST', body: formData });
+      } else {
+        res = await fetch('/api/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ messages: newMsgs.map(m => ({ role: m.role, content: m.content })) })
+        });
+      }
       const data = await res.json();
       if (data.text) {
-        setChatMessages([...newMsgs, { role: 'assistant', content: data.text, actionData: data.actionData, pendingBudget: data.pendingBudget }]);
+        setChatMessages([...newMsgs, { 
+          role: 'assistant', 
+          content: data.text, 
+          actionData: data.actionData, 
+          pendingBudget: data.pendingBudget, 
+          budgetAlerts: data.budgetAlerts,
+          balanceAlert: data.totalBalance < 0 ? { balance: data.totalBalance } : undefined
+        }]);
         if (data.actionData) {
           loadData(); // Re-fetch main table if the AI added a row
         }
@@ -341,7 +455,11 @@ export default function ExpenseTable({ expenses }: { expenses: Expense[] }) {
   const confirmBudget = async (b: {category:string, amount:number}, msgIndex: number) => {
     try {
       setIsChatLoading(true);
-      await fetch('/api/budget', { method: 'POST', body: JSON.stringify(b) });
+      await fetch('/api/budget', { 
+        method: 'POST', 
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...b, month: viewDate.getMonth()+1, year: viewDate.getFullYear() }) 
+      });
       await loadData();
       
       // Mark as confirmed
@@ -390,8 +508,17 @@ export default function ExpenseTable({ expenses }: { expenses: Expense[] }) {
     else { setSortBy(col); setSortDir('desc'); }
   };
 
+  const currentMonthData = useMemo(() => {
+    const y = viewDate.getFullYear();
+    const m = viewDate.getMonth();
+    return data.filter(e => {
+      const ed = new Date(e.createdAt);
+      return ed.getFullYear() === y && ed.getMonth() === m;
+    });
+  }, [data, viewDate]);
+
   const filtered = useMemo(() => {
-    let d = data.filter(e => {
+    let d = currentMonthData.filter(e => {
       const q = search.toLowerCase();
       return (e.item.toLowerCase().includes(q) || e.category.toLowerCase().includes(q))
         && (typeFilter === 'all' || e.type === typeFilter);
@@ -412,18 +539,28 @@ export default function ExpenseTable({ expenses }: { expenses: Expense[] }) {
   }, [filtered, page]);
 
   const stats = useMemo(() => {
-    const inc = data.filter(e=>e.type==='income').reduce((s,e)=>s+e.amount,0);
-    const exp = data.filter(e=>e.type==='expense').reduce((s,e)=>s+e.amount,0);
+    const inc = currentMonthData.filter(e=>e.type==='income').reduce((s,e)=>s+e.amount,0);
+    const exp = currentMonthData.filter(e=>e.type==='expense').reduce((s,e)=>s+e.amount,0);
     return { inc, exp, bal: inc - exp };
-  }, [data]);
+  }, [currentMonthData]);
+
+  const spentPerCategory = useMemo(() => {
+    const m: Record<string, number> = {};
+    currentMonthData.filter(e=>e.type==='expense').forEach(e => {
+        const cat = e.category.toLowerCase().trim();
+        m[cat] = (m[cat] || 0) + e.amount;
+    });
+    return m;
+  }, [currentMonthData]);
 
   const chartData = useMemo(() => {
     const m: Record<string,number> = {};
-    data.filter(e=>e.type==='expense').forEach(e => { m[e.category] = (m[e.category]||0) + e.amount; });
+    currentMonthData.filter(e=>e.type==='expense').forEach(e => { m[e.category] = (m[e.category]||0) + e.amount; });
     return Object.entries(m).map(([name,value])=>({name,value})).sort((a,b)=>b.value-a.value).slice(0,7);
-  }, [data]);
+  }, [currentMonthData]);
 
   const monthlyData = useMemo(() => {
+    // We keep this using full 'data' so the bar chart shows history
     const m: Record<string,{income:number;expense:number}> = {};
     data.forEach(e => {
       const k = new Date(e.createdAt).toLocaleDateString('id-ID',{month:'short',year:'2-digit'});
@@ -434,28 +571,62 @@ export default function ExpenseTable({ expenses }: { expenses: Expense[] }) {
   }, [data]);
 
   const calDays = useMemo(() => {
-    const year = calDate.getFullYear();
-    const month = calDate.getMonth();
+    const year = viewDate.getFullYear();
+    const month = viewDate.getMonth();
     const firstDay = new Date(year, month, 1).getDay();
     const daysInMonth = new Date(year, month + 1, 0).getDate();
     const days = [];
     for (let i = 0; i < firstDay; i++) days.push(null);
     for (let d = 1; d <= daysInMonth; d++) days.push(new Date(year, month, d));
     return days;
-  }, [calDate]);
+  }, [viewDate]);
 
   const dailySummary = useMemo(() => {
-    const summary: Record<string, { inc: number, exp: number }> = {};
-    data.forEach(e => {
+    const summary: Record<string, { inc: number, exp: number, topCat: string | null, catMax: number }> = {};
+    currentMonthData.forEach(e => {
       const d = new Date(e.createdAt).toISOString().slice(0, 10);
-      if (!summary[d]) summary[d] = { inc: 0, exp: 0 };
-      if (e.type === 'income') summary[d].inc += e.amount;
-      else summary[d].exp += e.amount;
+      if (!summary[d]) summary[d] = { inc: 0, exp: 0, topCat: null, catMax: 0 };
+      if (e.type === 'income') {
+        summary[d].inc += e.amount;
+      } else {
+        summary[d].exp += e.amount;
+        // Logic for top category
+        const dayExpByCat: Record<string, number> = {};
+        currentMonthData.filter(x => new Date(x.createdAt).toISOString().slice(0, 10) === d && x.type === 'expense')
+            .forEach(x => { dayExpByCat[x.category] = (dayExpByCat[x.category] || 0) + x.amount; });
+        
+        let max = 0; let top = null;
+        for (const [cat, amt] of Object.entries(dayExpByCat)) {
+          if (amt > max) { max = amt; top = cat; }
+        }
+        summary[d].topCat = top;
+      }
     });
     return summary;
-  }, [data]);
+  }, [currentMonthData]);
+
+  const maxDailyExp = useMemo(() => {
+    let max = 0;
+    Object.values(dailySummary).forEach(s => { if (s.exp > max) max = s.exp; });
+    return max || 1;
+  }, [dailySummary]);
 
   const top3 = useMemo(() => [...data].filter(e=>e.type==='expense').sort((a,b)=>b.amount-a.amount).slice(0,3), [data]);
+
+  const calendarSelectedDayTransactions = useMemo(() => {
+    if (!calendarSelectedDay) return [];
+    const dStr = calendarSelectedDay.toISOString().slice(0,10);
+    return data.filter(e => new Date(e.createdAt).toISOString().slice(0,10) === dStr)
+               .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  }, [data, calendarSelectedDay]);
+
+  const calendarSelectedDayTotals = useMemo(() => {
+    return calendarSelectedDayTransactions.reduce((acc, e) => {
+      if (e.type === 'income') acc.inc += e.amount;
+      else acc.exp += e.amount;
+      return acc;
+    }, { inc: 0, exp: 0 });
+  }, [calendarSelectedDayTransactions]);
 
   // Data specifically filtered for the Print Report
   const printFilteredData = useMemo(() => {
@@ -536,7 +707,7 @@ export default function ExpenseTable({ expenses }: { expenses: Expense[] }) {
       setPulse(true); setTimeout(() => setPulse(false), 1000);
     } catch (err) {
       console.error('Failed to add transaction:', err);
-      alert('Gagal menyimpan transaksi.');
+      showToast('Gagal menyimpan transaksi.', 'error');
     } finally {
       setSubmitting(false);
     }
@@ -549,14 +720,55 @@ export default function ExpenseTable({ expenses }: { expenses: Expense[] }) {
     try {
       await fetch('/api/budget', { 
         method: 'POST', 
-        body: JSON.stringify({ category: budgetCategory, amount: parseFloat(budgetAmount) }) 
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          category: budgetCategory, 
+          amount: parseFloat(budgetAmount),
+          month: viewDate.getMonth() + 1,
+          year: viewDate.getFullYear()
+        }) 
       });
       await loadData();
       setShowBudgetModal(false);
       setBudgetAmount('');
     } catch(err) {
       console.error(err);
-      alert('Gagal menyimpan target anggaran.');
+      showToast('Gagal menyimpan target anggaran.', 'error');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleCopyLastMonthBudgets = async () => {
+    setSubmitting(true);
+    try {
+      const prev = new Date(viewDate.getFullYear(), viewDate.getMonth() - 1, 1);
+      const res = await fetch(`/api/budget?month=${prev.getMonth()+1}&year=${prev.getFullYear()}`);
+      if (!res.ok) throw new Error();
+      const lastBudgets: Budget[] = await res.json();
+      
+      if (lastBudgets.length === 0) {
+        showToast('Tidak ada anggaran di bulan lalu untuk disalin.', 'info');
+        return;
+      }
+
+      for (const b of lastBudgets) {
+        await fetch('/api/budget', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            category: b.category,
+            amount: b.amount,
+            month: viewDate.getMonth() + 1,
+            year: viewDate.getFullYear()
+          })
+        });
+      }
+      await loadData();
+      showToast('Anggaran bulan lalu berhasil disalin ke bulan ini!', 'success');
+    } catch (err) {
+      console.error(err);
+      showToast('Gagal menyalin anggaran bulan lalu.', 'error');
     } finally {
       setSubmitting(false);
     }
@@ -564,34 +776,31 @@ export default function ExpenseTable({ expenses }: { expenses: Expense[] }) {
 
   const handleBudgetDelete = async () => {
     if (!budgetCategory) return;
-    if (!confirm(`Yakin ingin menghapus target untuk kategori ${CAT[budgetCategory]?.emoji || ''} ${budgetCategory}?`)) return;
-    setSubmitting(true);
-    try {
-      await fetch(`/api/budget?category=${encodeURIComponent(budgetCategory)}`, { method: 'DELETE' });
-      await loadData();
-      setShowBudgetModal(false);
-      setBudgetAmount('');
-    } catch(err) {
-      console.error(err);
-      alert('Gagal menghapus target anggaran.');
-    } finally {
-      setSubmitting(false);
-    }
+    setConfirmModal({
+      msg: `Yakin ingin menghapus target untuk kategori ${CAT[budgetCategory]?.emoji || ''} ${budgetCategory}?`,
+      onConfirm: async () => {
+        setSubmitting(true);
+        try {
+          await fetch(`/api/budget?category=${encodeURIComponent(budgetCategory)}&month=${viewDate.getMonth()+1}&year=${viewDate.getFullYear()}`, { method: 'DELETE' });
+          await loadData();
+          setShowBudgetModal(false);
+          setBudgetAmount('');
+          showToast('Target anggaran berhasil dihapus.', 'success');
+        } catch(err) {
+          console.error(err);
+          showToast('Gagal menghapus target anggaran.', 'error');
+        } finally {
+          setSubmitting(false);
+          setConfirmModal(null);
+        }
+      }
+    });
   };
 
   const t = makeTheme(dark);
   const balPos = stats.bal >= 0;
-
   const currentMonth = new Date().getMonth();
   const currentYear = new Date().getFullYear();
-  const spentPerCategory = useMemo(() => {
-    const m: Record<string,number> = {};
-    data.filter(e => e.type === 'expense' && new Date(e.createdAt).getMonth() === currentMonth && new Date(e.createdAt).getFullYear() === currentYear).forEach(e => {
-      const c = e.category.toLowerCase().trim();
-      m[c] = (m[c]||0) + e.amount;
-    });
-    return m;
-  }, [data, currentMonth, currentYear]);
 
   if (!mounted) return null;
 
@@ -662,7 +871,7 @@ export default function ExpenseTable({ expenses }: { expenses: Expense[] }) {
         .md-chat p:last-child { margin-bottom: 0; }
         .md-chat ul, .md-chat ol { margin-left: 18px; margin-bottom: 8px; }
         .md-chat li { margin-bottom: 4px; }
-        .md-chat strong { font-weight: 800; color: ${t.text}; }
+        .md-chat strong, .md-chat b { font-weight: 800 !important; color: inherit; }
         .md-chat code { background: ${dark?'#000':'#eef'}; padding: 2px 4px; border-radius: 4px; font-family: monospace; font-size: 0.8rem; }
 
         @media(max-width:640px){
@@ -671,38 +880,161 @@ export default function ExpenseTable({ expenses }: { expenses: Expense[] }) {
           .sg{grid-template-columns:1fr 1fr !important}
           .ha .ibtn span{display:none}
           .ha .ibtn{padding:7px !important}
+          .dsk-only { display: none !important; }
+          .mob-only { display: flex !important; }
+
+          /* Tighter mobile spacing */
+          .sidebar { margin-bottom: 0.5rem !important; }
+          .sidebar > div { margin-bottom: 0.75rem !important; }
+
+          /* Sticky tab bar on mobile */
+          .mob-sticky-tabs {
+            position: sticky; top: 0; z-index: 50;
+            background: ${t.bg}; padding: 10px 0 8px;
+            margin: 0 -1rem; padding-left: 1rem; padding-right: 1rem;
+            border-bottom: 1px solid ${t.border};
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+          }
+
+          /* Full-width scrollable tabs on mobile */
+          .mob-tabs-scroll {
+            overflow-x: auto; -webkit-overflow-scrolling: touch;
+            scrollbar-width: none; -ms-overflow-style: none;
+          }
+          .mob-tabs-scroll::-webkit-scrollbar { display: none; }
+
+          /* More compact mobile cards */
+          .mob-card {
+            padding: 11px 13px !important;
+            border-radius: 12px !important;
+          }
+
+          /* Month navigator mobile refinement */
+          .mn-wrapper { 
+            order: 3; width: 100%; margin-top: 0.5rem; 
+            justify-content: center !important;
+          }
+          .mn-card { 
+            width: 100%; max-width: 100%; 
+            padding: 6px 8px !important; 
+            border-radius: 12px !important;
+            background: ${t.surface} !important;
+          }
+          .mn-btn { font-size: 1.2rem !important; padding: 6px 12px !important; }
+          .mn-label { font-size: 0.9rem !important; }
+
+          /* Better mobile balance card */
+          .mob-balance-card {
+            border-radius: 18px !important;
+            padding: 1.1rem !important;
+          }
+
+          /* Full-screen chat on mobile */
+          .chat-window {
+            top: 0 !important; left: 0 !important; right: 0 !important; bottom: 0 !important;
+            width: 100% !important; max-width: 100% !important;
+            height: 100% !important; max-height: 100% !important;
+            border-radius: 0 !important;
+            border: none !important;
+          }
         }
-        @media(min-width:641px){.mob{display:none !important}}
+        @media(min-width:641px){
+          .mob{display:none !important}
+          .mob-only { display: none !important; }
+          .dsk-only { display: flex !important; }
+        }
+
+        /* Desktop two-column layout */
+        @media(min-width:900px){
+          .dsk-grid { display: grid; grid-template-columns: 310px 1fr; gap: 2rem; align-items: start; }
+          .sidebar { position: sticky; top: 1.5rem; }
+        }
+        @media(max-width:899px){
+          .dsk-grid { display: flex; flex-direction: column; }
+          .sidebar-only { display: none !important; }
+        }
+
+        /* Custom Toast & Confirm */
+        @keyframes slideUp { from { transform: translate(-50%, 20px); opacity: 0; } to { transform: translate(-50%, 0); opacity: 1; } }
+        .toast-box {
+          position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%);
+          background: rgba(15, 23, 42, 0.9); backdrop-filter: blur(12px);
+          color: #fff; padding: 12px 20px; border-radius: 12px; z-index: 10000;
+          box-shadow: 0 10px 40px rgba(0,0,0,0.3);
+          border-top: 1px solid rgba(255,255,255,0.1);
+          border-right: 1px solid rgba(255,255,255,0.1);
+          border-bottom: 1px solid rgba(255,255,255,0.1);
+          border-left: 1px solid rgba(255,255,255,0.1);
+          display: flex; align-items: center; gap: 10px; font-weight: 600; font-size: 0.85rem;
+          animation: slideUp 0.3s ease-out;
+        }
+        .toast-box.success { border-bottom-width: 3px; border-bottom-color: #22C55E; }
+        .toast-box.error   { border-bottom-width: 3px; border-bottom-color: #EF4444; }
+        .toast-box.info    { border-bottom-width: 3px; border-bottom-color: ${t.accent}; }
+
+        .conf-overlay {
+          position: fixed; inset: 0; background: rgba(0,0,0,0.6); backdrop-filter: blur(8px);
+          display: flex; align-items: center; justify-content: center; z-index: 10001;
+          animation: scIn 0.2s ease;
+        }
+        .conf-card {
+          background: ${t.surface}; border: 1px solid ${t.border}; border-radius: 20px;
+          padding: 24px; width: 90%; max-width: 360px; box-shadow: 0 30px 60px rgba(0,0,0,0.25);
+        }
       `}</style>
 
-      <div className="np" style={{ maxWidth:1080, margin:'0 auto', padding:'clamp(1rem,4vw,2.5rem) clamp(1rem,4vw,1.75rem)' }}>
+      <div className="np" style={{ maxWidth:1280, margin:'0 auto', padding:'clamp(1rem,4vw,2.5rem) clamp(1rem,4vw,1.75rem)' }}>
 
         {/* ── HEADER ── */}
-        <header className="np" style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:'1.75rem' }}>
-          <div style={{ display:'flex', alignItems:'center', gap:12 }}>
-            <div style={{ width:42, height:42, borderRadius:14, background:`linear-gradient(135deg,${t.accent},#9B7CF8)`, display:'flex', alignItems:'center', justifyContent:'center', boxShadow:`0 6px 18px ${t.accent}40`, color:'#fff' }}>
+        <header className="np" style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:'clamp(1rem,4vw,1.75rem)', flexWrap:'wrap', gap:'clamp(10px,3vw,15px)' }}>
+          <div style={{ display:'flex', alignItems:'center', gap:'clamp(8px,2vw,12px)' }}>
+            <div style={{ width:'clamp(36px,9vw,42px)', height:'clamp(36px,9vw,42px)', borderRadius:'clamp(11px,3vw,14px)', background:`linear-gradient(135deg,${t.accent},#9B7CF8)`, display:'flex', alignItems:'center', justifyContent:'center', boxShadow:`0 6px 18px ${t.accent}40`, color:'#fff' }}>
               <WalletIcon size={22} />
             </div>
             <div>
-              <h1 style={{ fontSize:'1.25rem', fontWeight:800, letterSpacing:'-0.5px', lineHeight:1 }}>
+              <h1 style={{ fontSize:'clamp(1rem,4vw,1.25rem)', fontWeight:800, letterSpacing:'-0.5px', lineHeight:1 }}>
                 Keuangan<span style={{ color:t.accent }}>ku</span>
               </h1>
-              <p style={{ fontSize:'0.75rem', color:t.sub, marginTop:4, fontWeight:600, display:'flex', alignItems:'center', gap:4 }}>
-                {(() => {
-                  const h = new Date().getHours();
-                  if (h < 11) return <><span style={{fontSize:14}}>🌅</span> Selamat Pagi, Mas!</>;
-                  if (h < 15) return <><span style={{fontSize:14}}>☀️</span> Selamat Siang, Mas!</>;
-                  if (h < 18) return <><span style={{fontSize:14}}>🌇</span> Selamat Sore, Mas!</>;
-                  return <><span style={{fontSize:14}}>🌙</span> Selamat Malam, Mas!</>;
-                })()}
-              </p>
+              {(() => {
+                const now = new Date();
+                const h = now.getHours();
+                const dayName = now.toLocaleDateString('id-ID', { weekday:'long' });
+                const dateStr = now.toLocaleDateString('id-ID', { day:'numeric', month:'long', year:'numeric' });
+                const emoji = h < 6 ? '🌃' : h < 11 ? '🌅' : h < 15 ? '☀️' : h < 18 ? '🌇' : h < 21 ? '🌆' : '🌙';
+                const greet = h < 6 ? 'Lembur ya' : h < 11 ? 'Selamat Pagi' : h < 15 ? 'Selamat Siang' : h < 18 ? 'Selamat Sore' : h < 21 ? 'Selamat Malam' : 'Istirahat dong';
+                return (
+                  <div style={{ marginTop:4 }}>
+                    <p style={{ fontSize:'clamp(0.65rem,2vw,0.75rem)', color:t.sub, fontWeight:600, display:'flex', alignItems:'center', gap:4 }}>
+                      <span style={{ fontSize:'clamp(12px,3vw,14px)' }}>{emoji}</span> 
+                      <span>{greet}, <span style={{ color:t.text, fontWeight:700 }}>Mas!</span></span>
+                    </p>
+                    <p className="dsk-only" style={{ fontSize:'0.62rem', color:t.muted, marginTop:2, fontWeight:500, display:'flex', alignItems:'center', gap:4 }}>
+                      📆 {dayName}, {dateStr}
+                    </p>
+                  </div>
+                );
+              })()}
             </div>
           </div>
+
+          {/* Month Navigator (Desktop Only) */}
+          <div className="mn-wrapper dsk-only" style={{ display:'flex', alignItems:'center', flex:1, justifyContent:'center' }}>
+            <div className="mn-card" style={{ display:'flex', alignItems:'center', gap:10, background:t.surface, border:`1px solid ${t.border}`, borderRadius:16, padding:'4px 10px', boxShadow:t.shad2, minWidth:210 }}>
+              <button className="mn-btn" onClick={() => setViewDate(new Date(viewDate.getFullYear(), viewDate.getMonth() - 1, 1))}
+                style={{ background:'none', border:'none', color:t.text, cursor:'pointer', fontSize:'1.1rem', padding:'5px 10px', display:'flex', alignItems:'center' }}>←</button>
+              <div style={{ textAlign:'center', flex:1 }}>
+                <p className="mn-label" style={{ fontSize:'0.85rem', fontWeight:900, textTransform:'capitalize', margin:0, whiteSpace:'nowrap' }}>
+                  {viewDate.toLocaleString('id-ID', { month: 'long', year: 'numeric' })}
+                </p>
+                <button onClick={() => setViewDate(new Date())} style={{ background:'none', border:'none', color:t.accent, fontSize:'0.65rem', fontWeight:800, textTransform:'uppercase', cursor:'pointer', padding:0, marginTop:-1 }}>Hari Ini</button>
+              </div>
+              <button className="mn-btn" onClick={() => setViewDate(new Date(viewDate.getFullYear(), viewDate.getMonth() + 1, 1))}
+                style={{ background:'none', border:'none', color:t.text, cursor:'pointer', fontSize:'1.1rem', padding:'5px 10px', display:'flex', alignItems:'center' }}>→</button>
+            </div>
+          </div>
+
           <div className="ha" style={{ display:'flex', gap:8, alignItems:'center' }}>
-            {/* <div style={{ display:'flex', alignItems:'center', gap:5, fontSize:'0.68rem', color:pulse?t.green:t.sub, transition:'color .3s' }}>
-              <div style={{ width:6, height:6, borderRadius:'50%', background:pulse?t.green:t.muted, transition:'background .3s', animation:pulse?'blink .6s ease':'none' }}/>
-              <span className="dsk">Live</span>
-            </div> */}
             <button className="ibtn" onClick={exportCSV}><DlIcon /><span>CSV</span></button>
             <button className="ibtn" onClick={()=>setShowPrintSettings(true)}><PrIcon /><span>Print</span></button>
             <button onClick={()=>setDark(!dark)} style={{ width:34, height:34, borderRadius:10, border:`1px solid ${t.border}`, background:t.surface, color:t.sub, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center' }}>
@@ -711,120 +1043,140 @@ export default function ExpenseTable({ expenses }: { expenses: Expense[] }) {
           </div>
         </header>
 
-        {/* ── HERO BALANCE CARD ── */}
-        <div className="f1 np" style={{
-          background:`linear-gradient(135deg, ${balPos?'#1B3554':'#3A1414'} 0%, ${balPos?'#0F2440':'#280E0E'} 100%)`,
-          borderRadius:20, padding:'clamp(1.25rem,4vw,1.75rem)', marginBottom:'1.25rem',
-          position:'relative', overflow:'hidden',
-          boxShadow:`0 8px 32px ${balPos?'#1B355444':'#3A141444'}`,
-        }}>
-          <WaveBg color={balPos?'#60A5FA':'#F87171'} />
-          <Dots color={balPos?'#93C5FD':'#FCA5A5'} />
-          <div style={{ position:'absolute', top:-40, left:-40, width:120, height:120, borderRadius:'50%', background:'rgba(255,255,255,0.025)' }}/>
-          <div style={{ position:'relative', zIndex:1, display:'flex', justifyContent:'space-between', alignItems:'flex-start', flexWrap:'wrap', gap:12 }}>
-            <div>
-              <p style={{ fontSize:'0.68rem', fontWeight:700, letterSpacing:'0.1em', textTransform:'uppercase', opacity:.55, color:'#fff', marginBottom:8 }}>Saldo Bersih</p>
-              <p style={{ fontSize:'clamp(1.9rem,6vw,2.7rem)', fontWeight:800, letterSpacing:'-1px', color:'#fff', lineHeight:1, marginBottom:16 }}>
-                {balPos?'':'−'}{fmt(stats.bal)}
-              </p>
-              <div style={{ display:'flex', gap:16, flexWrap:'wrap', marginBottom:20 }}>
-                <span style={{ fontSize:'0.77rem', color:'#86EFAC', display:'flex', alignItems:'center', gap:4 }}><UpIcon /> {fmtS(stats.inc)} masuk</span>
-                <span style={{ fontSize:'0.77rem', color:'#FCA5A5', display:'flex', alignItems:'center', gap:4 }}><DnIcon /> {fmtS(stats.exp)} keluar</span>
-              </div>
-              
-              <button onClick={()=>setShowAdd(true)} style={{ height:38, padding:'0 18px', borderRadius:10, background:`linear-gradient(135deg,${t.accent},#9B7CF8)`, color:'#fff', border:'none', cursor:'pointer', display:'flex', alignItems:'center', gap:8, fontWeight:700, fontSize:'0.82rem', boxShadow:`0 6px 20px ${t.accent}40`, letterSpacing:'0.03em', transition:'transform 0.1s' }} onMouseDown={e=>e.currentTarget.style.transform='scale(0.96)'} onMouseUp={e=>e.currentTarget.style.transform='scale(1)'} onMouseLeave={e=>e.currentTarget.style.transform='scale(1)'}>
-                <PlusIcon /> Catat Transaksi
-              </button>
-            </div>
-            <div style={{ display:'flex', flexDirection:'column', alignItems:'flex-end', gap:8 }}>
-              <Ring color={balPos?'#60A5FA':'#F87171'} size={46} />
-              <span style={{ fontSize:'0.67rem', opacity:.45, color:'#fff' }}>{data.length} transaksi</span>
-            </div>
-          </div>
-        </div>
-
-        {/* ── BUDGET PROGRESS ── */}
-        <div className="np" style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:'1rem' }}>
-          <h2 style={{ fontSize:'1.1rem', fontWeight:800, letterSpacing:'-0.5px' }}>🎯 Target Anggaran</h2>
-          <button onClick={() => setShowBudgetModal(true)} style={{ height:34, padding:'0 14px', borderRadius:8, background:`linear-gradient(135deg,${t.accent},#9B7CF8)`, color:'#fff', border:'none', cursor:'pointer', display:'flex', alignItems:'center', gap:6, fontWeight:700, fontSize:'0.75rem', boxShadow:`0 4px 12px ${t.accent}40`, transition:'transform 0.1s' }} onMouseDown={e=>e.currentTarget.style.transform='scale(0.96)'} onMouseUp={e=>e.currentTarget.style.transform='scale(1)'} onMouseLeave={e=>e.currentTarget.style.transform='scale(1)'}>
-            <PlusIcon /> Atur Target
-          </button>
-        </div>
-
-        {budgets.length > 0 ? (
-          <div className="np sg" style={{ display:'grid', gridTemplateColumns:'repeat(2, 1fr)', gap:'1rem', marginBottom:'1.5rem' }}>
-            {budgets.map(b => {
-              const spent = spentPerCategory[b.category] || 0;
-              const pct = Math.min(100, (spent / b.amount) * 100);
-              const isDanger = pct >= 90;
-              const isWarning = pct >= 75 && !isDanger;
-              const barColor = isDanger ? t.red : isWarning ? t.yellow : t.green;
-              const catTheme = getCat(b.category);
-              
-              return (
-                <div className="sc row" onClick={() => { setBudgetCategory(b.category); setBudgetAmount(b.amount.toString()); setShowBudgetModal(true); }} key={b.id} style={{ minWidth:0, background:t.surface, border:`1px solid ${t.border}`, borderRadius:16, padding:'clamp(10px,2.5vw,16px)', boxShadow:t.shad2 }}>
-                  <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-end', marginBottom:8, flexWrap:'wrap', gap:8 }}>
-                    <div style={{ display:'flex', alignItems:'center', gap:8, flex:1, minWidth:0 }}>
-                      <div style={{ width:28, height:28, borderRadius:8, background:catTheme.color+'20', color:catTheme.color, display:'flex', alignItems:'center', justifyContent:'center', fontSize:'0.9rem', flexShrink:0 }}>{catTheme.emoji}</div>
-                      <div style={{ minWidth:0, flex:1 }}>
-                        <p style={{ fontSize:'0.75rem', fontWeight:700, textTransform:'uppercase', letterSpacing:'0.05em', color:t.sub, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>Target {b.category}</p>
-                        <p style={{ fontSize:'0.9rem', fontWeight:800, color:t.text, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{fmtS(spent)} <span style={{fontSize:'0.7rem', color:t.sub, fontWeight:600}}>/ {fmtS(b.amount)}</span></p>
-                      </div>
-                    </div>
-                    <span style={{ fontSize:'0.75rem', fontWeight:800, color:barColor, flexShrink:0 }}>{pct.toFixed(0)}%</span>
-                  </div>
-                  <div style={{ height:6, background:t.border, borderRadius:4, overflow:'hidden' }}>
-                    <div style={{ width:`${pct}%`, height:'100%', background:barColor, borderRadius:4, transition:'width 0.5s ease-out' }}/>
-                  </div>
+        {/* ── DESKTOP GRID LAYOUT ── */}
+        <div className="dsk-grid">
+          
+          {/* ── SIDEBAR ── */}
+          <aside className="sidebar np">
+            
+            {/* ── COMPACT BALANCE CARD ── */}
+            <div className="f1 mob-balance-card" style={{
+              background:`linear-gradient(135deg, ${balPos?'#1B3554':'#3A1414'} 0%, ${balPos?'#0F2440':'#280E0E'} 100%)`,
+              borderRadius:20, padding:'clamp(1.25rem,4vw,1.5rem)', marginBottom:'1rem',
+              position:'relative', overflow:'hidden',
+              boxShadow:`0 8px 32px ${balPos?'#1B355444':'#3A141444'}`,
+            }}>
+              <WaveBg color={balPos?'#60A5FA':'#F87171'} />
+              <Dots color={balPos?'#93C5FD':'#FCA5A5'} />
+              <div style={{ position:'relative', zIndex:1 }}>
+                <p style={{ fontSize:'0.62rem', fontWeight:700, letterSpacing:'0.1em', textTransform:'uppercase', opacity:.55, color:'#fff', marginBottom:6 }}>Saldo Bersih</p>
+                <p style={{ fontSize:'clamp(1.6rem,5vw,2rem)', fontWeight:800, letterSpacing:'-1px', color:'#fff', lineHeight:1, marginBottom:14 }}>
+                  {balPos?'':'−'}{fmt(stats.bal)}
+                </p>
+                <div style={{ display:'flex', gap:14, flexWrap:'wrap', marginBottom:16 }}>
+                  <span style={{ fontSize:'0.72rem', color:'#86EFAC', display:'flex', alignItems:'center', gap:4 }}><UpIcon /> {fmtS(stats.inc)}</span>
+                  <span style={{ fontSize:'0.72rem', color:'#FCA5A5', display:'flex', alignItems:'center', gap:4 }}><DnIcon /> {fmtS(stats.exp)}</span>
                 </div>
-              );
-            })}
-          </div>
-        ) : (
-          <div className="np" style={{ background:t.surface, border:`1px solid ${t.border}`, borderRadius:16, padding:'24px', textAlign:'center', color:t.sub, marginBottom:'1.5rem', boxShadow:t.shad2 }}>
-            <p style={{ fontSize:'0.85rem' }}>Belum ada target anggaran. Tetapkan limit untuk mulai mengawasi pengeluaranmu!</p>
-          </div>
-        )}
-
-        {/* ── DIVIDER ── */}
-        <div className="np" style={{ height: 1, background: t.border, margin: '1rem 0 2rem 0', opacity: 0.6 }} />
-
-        {/* ── STAT CARDS ── */}
-        <div className="sg np" style={{ display:'grid', gridTemplateColumns:'repeat(2, 1fr)', gap:'0.75rem', marginBottom:'1.5rem' }}>
-          {[
-            { label:'Pemasukan', val:stats.inc, color:t.green,  svg:<UpIcon />,  dim:`${data.filter(e=>e.type==='income').length} transaksi` },
-            { label:'Pengeluaran', val:stats.exp, color:t.red,  svg:<DnIcon />,  dim:`${data.filter(e=>e.type==='expense').length} transaksi` },
-            { label:'Terbesar', val:top3[0]?.amount??0, color:t.yellow, svg:<StarIcon />, dim:top3[0]?.item??'—', span2:true },
-          ].map((c, i) => (
-            <div key={i} className={`f${i+2}`} style={{ minWidth:0, gridColumn: c.span2 ? 'span 2' : 'auto', background:t.surface, border:`1px solid ${t.border}`, borderRadius:16, padding:'clamp(12px,3vw,18px)', position:'relative', overflow:'hidden', boxShadow:t.shad2 }}>
-              <Dots color={c.color} />
-              <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:10 }}>
-                <div style={{ width:24, height:24, borderRadius:7, background:c.color+'20', color:c.color, display:'flex', alignItems:'center', justifyContent:'center' }}>{c.svg}</div>
-                <span style={{ fontSize:'0.68rem', fontWeight:700, textTransform:'uppercase', letterSpacing:'0.06em', color:t.sub }}>{c.label}</span>
+                
+                <button onClick={()=>setShowAdd(true)} style={{ width:'100%', height:38, borderRadius:10, background:`linear-gradient(135deg,${t.accent},#9B7CF8)`, color:'#fff', border:'none', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', gap:8, fontWeight:700, fontSize:'0.8rem', boxShadow:`0 6px 20px ${t.accent}40`, transition:'transform 0.1s' }} onMouseDown={e=>e.currentTarget.style.transform='scale(0.96)'} onMouseUp={e=>e.currentTarget.style.transform='scale(1)'} onMouseLeave={e=>e.currentTarget.style.transform='scale(1)'}>
+                  <PlusIcon /> Catat Transaksi
+                </button>
               </div>
-              <p style={{ fontSize:'clamp(.95rem,3vw,1.25rem)', fontWeight:800, color:c.color, letterSpacing:'-0.4px', marginBottom:3 }}>{fmtS(c.val)}</p>
-              <p style={{ fontSize:'0.68rem', color:t.sub, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{c.dim}</p>
             </div>
-          ))}
-        </div>
 
-        {/* ── TABS + FILTER ── */}
-        <div className="np" style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:'1rem', flexWrap:'wrap', gap:10 }}>
-          <div style={{ display:'flex', gap:3, background:t.surface, border:`1px solid ${t.border}`, borderRadius:12, padding:4 }}>
-            {(['list', 'chart', 'calendar'] as const).map(v => (
-              <button key={v} className={`tab ${tab===v?'on':''}`} onClick={()=>setTab(v)}>
-                {v==='list'?'📋 Transaksi':v==='chart'?'📊 Grafik':'📅 Kalender'}
-              </button>
-            ))}
-          </div>
-          <div style={{ display:'flex', gap:3, background:dark?t.surface:'#F1F3F9', padding:3, borderRadius:99, border:`1px solid ${t.border}` }}>
-            {(['all','income','expense'] as const).map(v => (
-              <button key={v} className={`pill ${typeFilter===v?'on':''}`} onClick={()=>setType(v)}>
-                {v==='all'?'Semua':v==='income'?'↑ Masuk':'↓ Keluar'}
-              </button>
-            ))}
-          </div>
-        </div>
+            {/* ── STAT MINI CARDS ── */}
+            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'0.6rem', marginBottom:'1rem' }}>
+              {[
+                { label:'Pemasukan', val:stats.inc, color:t.green, svg:<UpIcon />, count:data.filter(e=>e.type==='income').length },
+                { label:'Pengeluaran', val:stats.exp, color:t.red, svg:<DnIcon />, count:data.filter(e=>e.type==='expense').length },
+              ].map((c, i) => (
+                <div key={i} className={`f${i+2}`} style={{ background:t.surface, border:`1px solid ${t.border}`, borderRadius:14, padding:'12px', boxShadow:t.shad2 }}>
+                  <div style={{ display:'flex', alignItems:'center', gap:5, marginBottom:6 }}>
+                    <div style={{ width:20, height:20, borderRadius:6, background:c.color+'20', color:c.color, display:'flex', alignItems:'center', justifyContent:'center' }}>{c.svg}</div>
+                    <span style={{ fontSize:'0.6rem', fontWeight:700, textTransform:'uppercase', letterSpacing:'0.05em', color:t.sub }}>{c.label}</span>
+                  </div>
+                  <p style={{ fontSize:'0.88rem', fontWeight:800, color:c.color, letterSpacing:'-0.3px' }}>{fmtS(c.val)}</p>
+                  <p style={{ fontSize:'0.62rem', color:t.sub, marginTop:2 }}>{c.count} transaksi</p>
+                </div>
+              ))}
+            </div>
+
+            {/* ── BUDGETS ── */}
+            <div style={{ background:t.surface, border:`1px solid ${t.border}`, borderRadius:16, padding:'16px', boxShadow:t.shad2 }}>
+              <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:'0.9rem' }}>
+                <h3 style={{ fontSize:'0.85rem', fontWeight:800 }}>🎯 Anggaran</h3>
+                <button onClick={() => setShowBudgetModal(true)} style={{ height:30, padding:'0 12px', borderRadius:8, background:`linear-gradient(135deg,${t.accent},#9B7CF8)`, color:'#fff', border:'none', cursor:'pointer', display:'flex', alignItems:'center', gap:5, fontWeight:700, fontSize:'0.68rem', boxShadow:`0 4px 12px ${t.accent}40`, transition:'transform 0.1s' }} onMouseDown={e=>e.currentTarget.style.transform='scale(0.96)'} onMouseUp={e=>e.currentTarget.style.transform='scale(1)'} onMouseLeave={e=>e.currentTarget.style.transform='scale(1)'}>
+                  <PlusIcon /> Atur
+                </button>
+              </div>
+
+              {budgets.length > 0 ? (
+                <div style={{ display:'flex', flexDirection:'column', gap:'0.9rem' }}>
+                  {budgets.map(b => {
+                    const spent = spentPerCategory[b.category] || 0;
+                    const pct = Math.min(100, (spent / b.amount) * 100);
+                    const isDanger = pct >= 90;
+                    const isWarning = pct >= 75 && !isDanger;
+                    const barColor = isDanger ? t.red : isWarning ? t.yellow : t.green;
+                    const catTheme = getCat(b.category);
+                    
+                    return (
+                      <div className="row" onClick={() => { setBudgetCategory(b.category); setBudgetAmount(b.amount.toString()); setShowBudgetModal(true); }} key={b.id} style={{ cursor:'pointer' }}>
+                        <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:6 }}>
+                          <div style={{ width:24, height:24, borderRadius:7, background:catTheme.color+'20', color:catTheme.color, display:'flex', alignItems:'center', justifyContent:'center', fontSize:'0.8rem', flexShrink:0 }}>{catTheme.emoji}</div>
+                          <div style={{ flex:1, minWidth:0 }}>
+                            <p style={{ fontSize:'0.72rem', fontWeight:700, textTransform:'capitalize', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{b.category}</p>
+                          </div>
+                          <span style={{ fontSize:'0.68rem', fontWeight:800, color:barColor, flexShrink:0 }}>{pct.toFixed(0)}%</span>
+                        </div>
+                        <div style={{ height:5, background:t.border, borderRadius:4, overflow:'hidden' }}>
+                          <div style={{ width:`${pct}%`, height:'100%', background:barColor, borderRadius:4, transition:'width 0.5s ease-out' }}/>
+                        </div>
+                        <div style={{ display:'flex', justifyContent:'space-between', marginTop:4, fontSize:'0.6rem', color:t.sub }}>
+                          <span>{fmtS(spent)}</span>
+                          <span>/ {fmtS(b.amount)}</span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div style={{ textAlign:'center', padding:'14px 0', color:t.sub, fontSize:'0.75rem' }}>
+                  <p>Belum ada target anggaran.</p>
+                </div>
+              )}
+            </div>
+
+            {/* ── TOP SPENDER ── */}
+            {top3.length > 0 && (
+              <div style={{ background:t.surface, border:`1px solid ${t.border}`, borderRadius:16, padding:'16px', boxShadow:t.shad2, marginTop:'1rem' }}>
+                <p style={{ fontSize:'0.68rem', fontWeight:700, textTransform:'uppercase', letterSpacing:'0.07em', color:t.sub, marginBottom:12 }}>🔥 Top Pengeluaran</p>
+                {top3.map((e, i) => {
+                  const cat = getCat(e.category);
+                  return (
+                    <div key={e.id} style={{ display:'flex', alignItems:'center', gap:10, marginBottom:i<2?10:0 }}>
+                      <div style={{ width:28, height:28, borderRadius:8, background:cat.color+'18', display:'flex', alignItems:'center', justifyContent:'center', fontSize:'0.85rem', flexShrink:0 }}>{cat.emoji}</div>
+                      <div style={{ flex:1, minWidth:0 }}>
+                        <p style={{ fontWeight:600, fontSize:'0.78rem', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{e.item}</p>
+                      </div>
+                      <span style={{ fontWeight:800, color:t.red, fontSize:'0.75rem', whiteSpace:'nowrap' }}>{fmtS(e.amount)}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </aside>
+
+          {/* ── MAIN CONTENT ── */}
+          <main style={{ minWidth:0 }}>
+
+            {/* ── TABS + FILTER ── */}
+            <div className="np mob-sticky-tabs" style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:'1rem', flexWrap:'wrap', gap:10 }}>
+              <div style={{ display:'flex', gap:3, background:t.surface, border:`1px solid ${t.border}`, borderRadius:12, padding:4 }}>
+                {(['list', 'chart', 'calendar'] as const).map(v => (
+                  <button key={v} className={`tab ${tab===v?'on':''}`} onClick={()=>setTab(v)}>
+                    {v==='list'?'📋 Transaksi':v==='chart'?'📊 Grafik':'📅 Kalender'}
+                  </button>
+                ))}
+              </div>
+              <div style={{ display:'flex', gap:3, background:dark?t.surface:'#F1F3F9', padding:3, borderRadius:99, border:`1px solid ${t.border}` }}>
+                {(['all','income','expense'] as const).map(v => (
+                  <button key={v} className={`pill ${typeFilter===v?'on':''}`} onClick={()=>setType(v)}>
+                    {v==='all'?'Semua':v==='income'?'↑ Masuk':'↓ Keluar'}
+                  </button>
+                ))}
+              </div>
+            </div>
 
         {/* ══════════════ CHART TAB ══════════════ */}
         {tab === 'chart' && (
@@ -924,16 +1276,16 @@ export default function ExpenseTable({ expenses }: { expenses: Expense[] }) {
            <div className="sc" style={{ background:t.surface, border:`1px solid ${t.border}`, borderRadius:16, padding:'clamp(15px,4vw,20px)', boxShadow:t.shad2, marginBottom:'1.5rem', minWidth:0, overflow:'hidden' }}>
               <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'1.2rem', gap:10 }}>
                 <h3 style={{ fontSize:'clamp(0.85rem,3vw,1rem)', fontWeight:800, color:t.text, textTransform:'capitalize', margin:0 }}>
-                  {calDate.toLocaleString('id-ID', { month: 'long', year: 'numeric' })}
+                  {viewDate.toLocaleString('id-ID', { month: 'long', year: 'numeric' })}
                 </h3>
                 <div style={{ display:'flex', gap:6, flexShrink:0 }}>
-                  <button onClick={() => setCalDate(new Date(calDate.getFullYear(), calDate.getMonth() - 1, 1))}
+                  <button onClick={() => setViewDate(new Date(viewDate.getFullYear(), viewDate.getMonth() - 1, 1))}
                     title="Bulan Sebelumnya"
                     style={{ background:t.surf2, border:`1px solid ${t.border}`, borderRadius:8, width:32, height:32, cursor:'pointer', color:t.text, display:'flex', alignItems:'center', justifyContent:'center', transition:'all .2s' }}>←</button>
-                  <button onClick={() => setCalDate(new Date())}
+                  <button onClick={() => setViewDate(new Date())}
                     title="Bulan Ini"
                     style={{ background:t.surf2, border:`1px solid ${t.border}`, borderRadius:8, padding:'0 10px', height:32, cursor:'pointer', color:t.text, fontSize:'0.7rem', fontWeight:700, transition:'all .2s' }}>Hari Ini</button>
-                  <button onClick={() => setCalDate(new Date(calDate.getFullYear(), calDate.getMonth() + 1, 1))}
+                  <button onClick={() => setViewDate(new Date(viewDate.getFullYear(), viewDate.getMonth() + 1, 1))}
                     title="Bulan Berikutnya"
                     style={{ background:t.surf2, border:`1px solid ${t.border}`, borderRadius:8, width:32, height:32, cursor:'pointer', color:t.text, display:'flex', alignItems:'center', justifyContent:'center', transition:'all .2s' }}>→</button>
                 </div>
@@ -951,15 +1303,41 @@ export default function ExpenseTable({ expenses }: { expenses: Expense[] }) {
                   const isToday = new Date().toISOString().slice(0,10) === dStr;
                   const dayNum = date.getDate();
 
+                  const ratio = summary?.exp ? (summary.exp / maxDailyExp) : 0;
+                  let colorBase = t.green;
+                  let intensity = 0.1;
+
+                  if (ratio > 0) {
+                    if (ratio < 0.3) {
+                      colorBase = t.green;
+                      intensity = 0.15;
+                    } else if (ratio < 0.7) {
+                      colorBase = t.yellow;
+                      intensity = 0.25;
+                    } else {
+                      colorBase = t.red;
+                      intensity = 0.35;
+                    }
+                  }
+                  
+                  const alpha = Math.floor(intensity * 255).toString(16).padStart(2, '0');
+                  const bgColor = summary?.exp ? colorBase + alpha : isToday ? t.accent+'08' : t.surf2;
+
                   return (
-                    <div key={dStr} className="cal-day" style={{ 
+                    <div key={dStr} className="cal-day" onClick={() => setCalendarSelectedDay(date)} style={{ 
                       aspectRatio:'1/1', border:`1px solid ${isToday ? t.accent : t.border}`, 
                       borderRadius:10, padding:' clamp(2px,1vw,6px)', display:'flex', flexDirection:'column', justifyContent:'space-between',
-                      background: isToday ? t.accent+'08' : t.surf2,
+                      background: bgColor,
                       position:'relative', transition:'transform .2s, box-shadow .2s',
+                      cursor:'pointer', overflow:'hidden'
                     }}>
-                      <span style={{ fontSize:'clamp(0.65rem,2vw,0.78rem)', fontWeight:800, color: isToday ? t.accent : t.text, opacity: isToday?1:0.8 }}>{dayNum}</span>
-                      <div style={{ display:'flex', flexDirection:'column', gap:1, alignItems:'flex-end', overflow:'hidden' }}>
+                      {summary?.topCat && (
+                        <div style={{ position:'absolute', inset:0, display:'flex', alignItems:'center', justifyContent:'center', fontSize:'clamp(1.2rem,4vw,1.8rem)', opacity:0.15, pointerEvents:'none', zIndex:0 }}>
+                          {getCat(summary.topCat).emoji}
+                        </div>
+                      )}
+                      <span style={{ position:'relative', zIndex:1, fontSize:'clamp(0.65rem,2vw,0.78rem)', fontWeight:800, color: isToday ? t.accent : t.text, opacity: isToday?1:0.8 }}>{dayNum}</span>
+                      <div style={{ position:'relative', zIndex:1, display:'flex', flexDirection:'column', gap:1, alignItems:'flex-end', overflow:'hidden' }}>
                         {summary?.inc > 0 && (
                           <span style={{ fontSize:'clamp(0.48rem,1.5vw,0.6rem)', fontWeight:800, color:t.green, whiteSpace:'nowrap' }}>
                             <span className="dsk-inline">+{fmtS(summary.inc).replace('Rp ','')}</span>
@@ -1094,32 +1472,29 @@ export default function ExpenseTable({ expenses }: { expenses: Expense[] }) {
             </div>
 
             {/* Mobile Cards */}
-            <div className="mob" style={{ flexDirection:'column', gap:'0.55rem' }}>
+            <div className="mob" style={{ flexDirection:'column', gap:'0.5rem' }}>
               {paginatedData.length === 0 ? (
-                <div style={{ textAlign:'center', padding:'3rem 1rem', color:t.sub, display:'flex', flexDirection:'column', alignItems:'center', gap:10 }}>
+                <div style={{ textAlign:'center', padding:'2.5rem 1rem', color:t.sub, display:'flex', flexDirection:'column', alignItems:'center', gap:8 }}>
                   <EmptySVG color={t.muted} />
-                  <p style={{ fontSize:'0.83rem' }}>{search?`Tidak ada "${search}"` : 'Belum ada transaksi'}</p>
+                  <p style={{ fontSize:'0.8rem' }}>{search?`Tidak ada "${search}"` : 'Belum ada transaksi'}</p>
                 </div>
               ) : paginatedData.map(e => {
                 const cat = getCat(e.category);
                 const isIn = e.type === 'income';
                 return (
-                  <div key={e.id} className="row" onClick={()=>setSelected(e)}
-                    style={{ background:t.surface, border:`1px solid ${t.border}`, borderRadius:14, padding:'13px 15px', display:'flex', alignItems:'center', gap:12, boxShadow:t.shad2 }}>
-                    <div style={{ width:42, height:42, borderRadius:12, background:cat.color+'18', display:'flex', alignItems:'center', justifyContent:'center', fontSize:'1.2rem', flexShrink:0 }}>
+                  <div key={e.id} className="row mob-card" onClick={()=>setSelected(e)}
+                    style={{ background:t.surface, borderTop:`1px solid ${t.border}`, borderRight:`1px solid ${t.border}`, borderBottom:`1px solid ${t.border}`, borderLeft:`3px solid ${isIn?t.green:t.red}`, borderRadius:12, padding:'11px 13px', display:'flex', alignItems:'center', gap:10 }}>
+                    <div style={{ width:36, height:36, borderRadius:10, background:cat.color+'15', display:'flex', alignItems:'center', justifyContent:'center', fontSize:'1rem', flexShrink:0 }}>
                       {cat.emoji}
                     </div>
                     <div style={{ flex:1, minWidth:0 }}>
-                      <p style={{ fontWeight:700, fontSize:'0.88rem', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', marginBottom:4 }}>{e.item}</p>
-                      <div style={{ display:'flex', alignItems:'center', gap:7 }}>
-                        <span style={{ background:cat.color+'18', color:cat.color, padding:'2px 7px', borderRadius:99, fontSize:'0.63rem', fontWeight:700 }}>{e.category}</span>
-                        <span style={{ fontSize:'0.65rem', color:t.sub }}>{fmtDs(e.createdAt)}</span>
+                      <p style={{ fontWeight:700, fontSize:'0.82rem', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', marginBottom:3 }}>{e.item}</p>
+                      <div style={{ display:'flex', alignItems:'center', gap:6 }}>
+                        <span style={{ background:cat.color+'12', color:cat.color, padding:'1px 6px', borderRadius:99, fontSize:'0.58rem', fontWeight:700 }}>{e.category}</span>
+                        <span style={{ fontSize:'0.6rem', color:t.sub }}>{fmtDs(e.createdAt)}</span>
                       </div>
                     </div>
-                    <div style={{ textAlign:'right', flexShrink:0, display:'flex', flexDirection:'column', alignItems:'flex-end', gap:4 }}>
-                      <p style={{ fontWeight:800, color:isIn?t.green:t.red, fontSize:'0.92rem', whiteSpace:'nowrap' }}>{isIn?'+':'−'}{fmtS(e.amount)}</p>
-                      <span style={{ color:t.muted }}><CvRight /></span>
-                    </div>
+                    <p style={{ fontWeight:800, color:isIn?t.green:t.red, fontSize:'0.85rem', whiteSpace:'nowrap', flexShrink:0 }}>{isIn?'+':'−'}{fmtS(e.amount)}</p>
                   </div>
                 );
               })}
@@ -1147,8 +1522,26 @@ export default function ExpenseTable({ expenses }: { expenses: Expense[] }) {
             )}
           </>
         )}
+          </main>
+        </div>{/* end dsk-grid */}
 
-        <p style={{ textAlign:'center', marginTop:'2rem', fontSize:'0.65rem', color:t.sub, letterSpacing:'0.05em' }}>
+        {/* Month Navigator (Mobile Only) - Bottom Position */}
+        <div className="mn-wrapper mob-only" style={{ display:'none', alignItems:'center', justifyContent:'center', marginTop:12, marginBottom:8 }}>
+          <div className="mn-card" style={{ display:'flex', alignItems:'center', gap:6, background:t.surface, border:`1px solid ${t.border}`, borderRadius:12, padding:'5px 8px', boxShadow:t.shad2, width:'100%' }}>
+            <button className="mn-btn" onClick={() => setViewDate(new Date(viewDate.getFullYear(), viewDate.getMonth() - 1, 1))}
+              style={{ background:'none', border:'none', color:t.text, cursor:'pointer', fontSize:'1.4rem', padding:'10px 20px', display:'flex', alignItems:'center' }}>←</button>
+            <div style={{ textAlign:'center', flex:1 }}>
+              <p className="mn-label" style={{ fontSize:'1rem', fontWeight:900, textTransform:'capitalize', margin:0, whiteSpace:'nowrap' }}>
+                {viewDate.toLocaleString('id-ID', { month: 'long', year: 'numeric' })}
+              </p>
+              <button onClick={() => setViewDate(new Date())} style={{ background:'none', border:'none', color:t.accent, fontSize:'0.75rem', fontWeight:800, textTransform:'uppercase', cursor:'pointer', padding:0, marginTop:0 }}>Hari Ini</button>
+            </div>
+            <button className="mn-btn" onClick={() => setViewDate(new Date(viewDate.getFullYear(), viewDate.getMonth() + 1, 1))}
+              style={{ background:'none', border:'none', color:t.text, cursor:'pointer', fontSize:'1.4rem', padding:'10px 20px', display:'flex', alignItems:'center' }}>→</button>
+          </div>
+        </div>
+
+        <p style={{ textAlign:'center', marginTop:'1.5rem', fontSize:'0.65rem', color:t.sub, letterSpacing:'0.05em', paddingBottom:10 }}>
           ● Sync otomatis 5s · WhatsApp Bot
         </p>
       </div>
@@ -1430,6 +1823,12 @@ export default function ExpenseTable({ expenses }: { expenses: Expense[] }) {
                   {isSubmitting ? 'Menyimpan...' : 'Simpan Target'}
                 </button>
               </div>
+
+              <div style={{ marginTop: 12, borderTop: `1px solid ${t.border}`, paddingTop: 12 }}>
+                <button type="button" onClick={handleCopyLastMonthBudgets} disabled={isSubmitting} style={{ width: '100%', padding: '12px', borderRadius: 10, background: 'transparent', color: t.accent, border: `1px solid ${t.accent}`, fontSize: '0.75rem', fontWeight: 700, cursor: isSubmitting ? 'not-allowed' : 'pointer', display: 'flex', alignItems:'center', justifyContent: 'center', gap: 6 }}>
+                  🔄 Sama Seperti Bulan Lalu
+                </button>
+              </div>
             </form>
           </div>
         </div>
@@ -1518,9 +1917,70 @@ export default function ExpenseTable({ expenses }: { expenses: Expense[] }) {
           </div>
         </div>
       )}
+      {/* ══════════════ CALENDAR DAY DETAIL MODAL ══════════════ */}
+      {calendarSelectedDay && (
+        <div className="modal-backdrop-print" style={{ position:'fixed', inset:0, background: 'rgba(0,0,0,0.65)', backdropFilter:'blur(12px)', WebkitBackdropFilter:'blur(12px)', display:'flex', alignItems:'center', justifyContent:'center', zIndex:1001, padding:16 }}>
+          <div className="sc" style={{ background: dark?'rgba(20,22,32,0.92)':'rgba(255,255,255,0.92)', color: t.text, borderRadius: 24, border: `1px solid ${dark?'rgba(255,255,255,0.1)':'rgba(255,255,255,0.5)'}`, padding: '0px', maxWidth: 420, width: '100%', position: 'relative', boxShadow: '0 32px 64px rgba(0,0,0,0.3)', overflow: 'hidden' }}>
+            
+            <button type="button" onClick={()=>setCalendarSelectedDay(null)} style={{ position:'absolute', top:18, right:18, background:t.surf2, border:`1px solid ${t.border}`, borderRadius:10, width:32, height:32, display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer', color:t.sub, zIndex:10 }}>
+              <XIcon />
+            </button>
+
+            <div style={{ padding: '24px' }}>
+              <div style={{ marginBottom: 20 }}>
+                <p style={{ fontSize:'0.75rem', fontWeight:800, textTransform:'uppercase', color:t.accent, letterSpacing:'0.1em', marginBottom:6 }}>Ringkasan Harian</p>
+                <h2 style={{ fontSize:'clamp(1.1rem,4vw,1.4rem)', fontWeight:900, letterSpacing:'-0.5px', margin:0 }}>
+                  {calendarSelectedDay.toLocaleDateString('id-ID', { weekday:'long', day:'numeric', month:'long', year:'numeric' })}
+                </h2>
+              </div>
+
+              <div className="sc" style={{ maxHeight: '350px', overflowY: 'auto', marginBottom: 20, paddingRight: 4, display:'flex', flexDirection:'column', gap:10 }}>
+                {calendarSelectedDayTransactions.length === 0 ? (
+                  <div style={{ textAlign:'center', padding:'3rem 1rem', color:t.sub, opacity:0.6 }}>
+                    <EmptySVG color={t.muted} />
+                    <p style={{ fontSize:'0.85rem', marginTop:10 }}>Tidak ada transaksi di hari ini.</p>
+                  </div>
+                ) : calendarSelectedDayTransactions.map((trx) => {
+                  const cat = getCat(trx.category);
+                  return (
+                    <div key={trx.id} style={{ background:t.surface, border:`1px solid ${t.border}`, borderRadius:14, padding:12, display:'flex', alignItems:'center', gap:12, boxShadow: t.shad2 }}>
+                      <div style={{ width:36, height:36, borderRadius:10, background:cat.color+'15', display:'flex', alignItems:'center', justifyContent:'center', fontSize:'1.1rem' }}>
+                        {cat.emoji}
+                      </div>
+                      <div style={{ flex:1, minWidth:0 }}>
+                        <p style={{ fontWeight:700, fontSize:'0.82rem', marginBottom:2, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{trx.item}</p>
+                        <span style={{ fontSize:'0.65rem', color:t.sub, textTransform:'capitalize' }}>{trx.category}</span>
+                      </div>
+                      <div style={{ textAlign:'right' }}>
+                        <p style={{ fontWeight:800, fontSize:'0.85rem', color: trx.type==='income'?t.green:t.red }}>{trx.type==='income'?'+':'-'} {fmtS(trx.amount).replace('Rp ','')}</p>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              <div style={{ borderTop: `1.5px dashed ${t.border}`, paddingTop: 16, display:'flex', justifyContent:'space-between', gap:12 }}>
+                <div style={{ flex:1 }}>
+                    <p style={{ fontSize: '0.65rem', fontWeight: 700, color: t.sub, textTransform: 'uppercase', marginBottom: 4 }}>Pemasukan</p>
+                    <p style={{ fontSize: '0.95rem', fontWeight: 900, color: t.green }}>+ {fmt(calendarSelectedDayTotals.inc)}</p>
+                </div>
+                <div style={{ flex:1, textAlign:'right' }}>
+                    <p style={{ fontSize: '0.65rem', fontWeight: 700, color: t.sub, textTransform: 'uppercase', marginBottom: 4 }}>Pengeluaran</p>
+                    <p style={{ fontSize: '0.95rem', fontWeight: 900, color: t.red }}>− {fmt(calendarSelectedDayTotals.exp)}</p>
+                </div>
+              </div>
+              
+              <button onClick={()=>setCalendarSelectedDay(null)} style={{ marginTop: 24, width:'100%', padding:'12px', borderRadius:12, background: t.surf2, color: t.text, border:`1px solid ${t.border}`, fontWeight:700, fontSize:'0.85rem', cursor:'pointer', transition:'all 0.2s' }}>
+                Tutup
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ══════════════ AI CHAT FLOATING WINDOW ══════════════ */}
       {showChat && (
-        <div className="sc np" style={{ position:'fixed', bottom:90, right:24, width:380, maxWidth:'calc(100vw - 48px)', height:550, maxHeight:'calc(100vh - 120px)', borderRadius:20, background: dark?'rgba(20,22,32,0.95)':'rgba(255,255,255,0.95)', border:`1px solid ${t.border}`, boxShadow:'0 24px 48px rgba(0,0,0,0.2)', backdropFilter:'blur(16px)', WebkitBackdropFilter:'blur(16px)', zIndex:999, display:'flex', flexDirection:'column', overflow:'hidden' }}>
+        <div className="sc np chat-window" style={{ position:'fixed', bottom:90, right:24, width:380, maxWidth:'calc(100vw - 48px)', height:550, maxHeight:'calc(100vh - 120px)', borderRadius:20, background: dark?'rgba(20,22,32,0.95)':'rgba(255,255,255,0.95)', border:`1px solid ${t.border}`, boxShadow:'0 24px 48px rgba(0,0,0,0.2)', backdropFilter:'blur(16px)', WebkitBackdropFilter:'blur(16px)', zIndex:999, display:'flex', flexDirection:'column', overflow:'hidden' }}>
           {/* Header */}
           <div style={{ background:`linear-gradient(135deg,${t.accent},#9B7CF8)`, padding:'16px 20px', color:'#fff', display:'flex', alignItems:'center', justifyContent:'space-between' }}>
             <div style={{ display:'flex', alignItems:'center', gap:10 }}>
@@ -1539,7 +1999,31 @@ export default function ExpenseTable({ expenses }: { expenses: Expense[] }) {
               <div key={i} style={{ display:'flex', justifyContent:m.role==='user'?'flex-end':'flex-start' }}>
                 <div style={{ maxWidth:'85%', background:m.role==='user'?`${t.accent}`:t.surf2, color:m.role==='user'?'#fff':t.text, padding:'12px 16px', borderRadius:18, borderBottomRightRadius:m.role==='user'?4:18, borderBottomLeftRadius:m.role==='assistant'?4:18, fontSize:'0.85rem', lineHeight:1.5, border:m.role==='assistant'?`1px solid ${t.border}`:'none', wordBreak:'break-word' }}>
                   {m.role === 'user' ? (
-                    m.content
+                    <div>
+                      {/* File previews in user messages */}
+                      {(m as any).filePreviews && (m as any).filePreviews.length > 0 && (
+                        <div style={{ display:'flex', flexWrap:'wrap', gap:6, marginBottom:8 }}>
+                          {(m as any).filePreviews.map((fp: any, fi: number) => (
+                            <div key={fi}>
+                              {fp.type === 'image' && fp.preview && (
+                                <img src={fp.preview} alt="" style={{ width:120, height:80, objectFit:'cover', borderRadius:10, border:'2px solid rgba(255,255,255,0.3)' }} />
+                              )}
+                              {fp.type === 'audio' && (
+                                <div style={{ display:'flex', alignItems:'center', gap:6, background:'rgba(255,255,255,0.15)', padding:'6px 10px', borderRadius:8, fontSize:'0.72rem' }}>
+                                  🎤 {fp.name}
+                                </div>
+                              )}
+                              {fp.type === 'pdf' && (
+                                <div style={{ display:'flex', alignItems:'center', gap:6, background:'rgba(255,255,255,0.15)', padding:'6px 10px', borderRadius:8, fontSize:'0.72rem' }}>
+                                  📄 {fp.name}
+                                </div>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      {m.content}
+                    </div>
                   ) : (
                     <div className="md-chat">
                       {i === chatMessages.length - 1 && !m.isTyped ? (
@@ -1555,7 +2039,7 @@ export default function ExpenseTable({ expenses }: { expenses: Expense[] }) {
                           }}
                         />
                       ) : (
-                        <ReactMarkdown>{m.content}</ReactMarkdown>
+                         <ReactMarkdown children={m.content} />
                       )}
                       
                       {/* AI Action Receipt Card (Success Indicator) */}
@@ -1575,6 +2059,57 @@ export default function ExpenseTable({ expenses }: { expenses: Expense[] }) {
                           </div>
                         </div>
                       ))}
+
+                      {/* AI Budget Alerts (Overbudget/Almost Full Warning) */}
+                      {m.budgetAlerts && m.budgetAlerts.map((alert, idx) => {
+                        const isDanger = alert.status === 'danger';
+                        const bg = isDanger ? 'linear-gradient(135deg, #FEF2F2, #FEE2E2)' : 'linear-gradient(135deg, #FFFBEB, #FEF3C7)';
+                        const border = isDanger ? '#FECACA' : '#FDE68A';
+                        const accent = isDanger ? t.red : '#D97706';
+                        const text = isDanger ? '#991B1B' : '#92400E';
+                        const subText = isDanger ? '#B91C1C' : '#B45309';
+
+                        return (
+                          <div key={idx} style={{ marginTop: 12, background: bg, borderRadius: 16, padding: '16px', border: `1px solid ${border}`, boxShadow: `0 8px 24px ${accent}20`, position: 'relative', overflow: 'hidden' }}>
+                            <div style={{ position: 'absolute', top: -10, right: -10, opacity: 0.1, transform: 'rotate(15deg)', color: accent }}>
+                              <AlertIcon size={80} />
+                            </div>
+                            <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:10 }}>
+                               <div style={{ width:32, height:32, borderRadius:10, background:accent, color:'#fff', display:'flex', alignItems:'center', justifyContent:'center', boxShadow: `0 4px 12px ${accent}40` }}>
+                                 <AlertIcon size={18} />
+                               </div>
+                               <span style={{ fontSize:'0.75rem', fontWeight:800, color:accent, letterSpacing:'0.05em', textTransform:'uppercase' }}>
+                                 {isDanger ? 'Peringatan Anggaran!' : 'Hampir Terpenuhi!'}
+                               </span>
+                            </div>
+                            <p style={{ fontSize:'0.85rem', fontWeight:700, color:text, margin:'0 0 4px' }}>
+                              Kategori {alert.category} {isDanger ? 'Overbudget!' : 'Sudah 80%+'}
+                            </p>
+                            <div style={{ fontSize: '0.75rem', color: subText, opacity: 0.8, lineHeight: 1.4, margin:0 }}>
+                               <ReactMarkdown children={`Mas sudah pakai **${fmtS(alert.spent)}** dari limit **${fmtS(alert.limit)}**. ${isDanger ? 'Segera rem pengeluaran di kategori ini ya Mas! 🛑' : 'Dikit lagi limitnya habis nih Mas, hati-hati ya! ⚠️'}`} />
+                            </div>
+                          </div>
+                        );
+                      })}
+
+                      {/* AI Balance Alert (Negative Balance) */}
+                      {m.balanceAlert && (
+                        <div style={{ marginTop: 12, background: 'linear-gradient(135deg, #1F2937, #111827)', borderRadius: 16, padding: '16px', border: `1px solid rgba(239, 68, 68, 0.4)`, boxShadow: `0 8px 32px rgba(0, 0, 0, 0.3)`, position: 'relative', overflow: 'hidden' }}>
+                          <div style={{ position: 'absolute', top: -10, right: -10, opacity: 0.1, transform: 'rotate(15deg)', color: '#EF4444' }}>
+                            <WalletIcon size={80} />
+                          </div>
+                          <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:10 }}>
+                             <div style={{ width:32, height:32, borderRadius:10, background:'#EF4444', color:'#fff', display:'flex', alignItems:'center', justifyContent:'center', boxShadow: `0 4px 12px rgba(239, 68, 68, 0.4)` }}>
+                               <AlertIcon size={18} />
+                             </div>
+                             <span style={{ fontSize:'0.75rem', fontWeight:800, color:'#EF4444', letterSpacing:'0.05em', textTransform:'uppercase' }}>Saldo Minus!</span>
+                          </div>
+                          <p style={{ fontSize:'0.85rem', fontWeight:700, color:'#F9FAFB', margin:'0 0 4px' }}>Dompet Mas Sedang Kering!</p>
+                          <div style={{ fontSize: '0.75rem', color: '#D1D5DB', opacity: 0.8, lineHeight: 1.4, margin:0 }}>
+                            <ReactMarkdown children={`Saldo bersih Mas saat ini **Rp ${m.balanceAlert.balance.toLocaleString('id-ID')}**. Coba cek lagi catatannya atau tambahkan pemasukan baru ya Mas! 💸🆘`} />
+                          </div>
+                        </div>
+                      )}
 
                       {/* AI Budget Confirmation Card */}
                       {m.pendingBudget && (
@@ -1616,10 +2151,67 @@ export default function ExpenseTable({ expenses }: { expenses: Expense[] }) {
             <div ref={chatEndRef} />
           </div>
 
+          {/* File Preview Bar */}
+          {chatFiles.length > 0 && (
+            <div style={{ padding:'8px 16px 0', borderTop:`1px solid ${t.border}`, background:t.surface, display:'flex', gap:8, flexWrap:'wrap' }}>
+              {chatFiles.map((f, i) => (
+                <div key={i} style={{ position:'relative', display:'inline-flex', alignItems:'center', gap:6, background:t.surf2, border:`1px solid ${t.border}`, borderRadius:10, padding:'6px 10px', fontSize:'0.72rem', color:t.sub }}>
+                  {f.type === 'image' && <img src={f.preview} alt="" style={{ width:32, height:32, borderRadius:6, objectFit:'cover' }} />}
+                  {f.type === 'audio' && <span>🎤</span>}
+                  {f.type === 'pdf' && <span>📄</span>}
+                  <span style={{ maxWidth:80, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{f.file.name}</span>
+                  <button onClick={() => removeChatFile(i)} style={{ background:'none', border:'none', color:t.red, cursor:'pointer', fontSize:'0.8rem', padding:0, lineHeight:1, display:'flex' }}>
+                    <XIcon />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Recording Indicator */}
+          {isRecording && (
+            <div style={{ padding:'10px 16px', borderTop:`1px solid ${t.border}`, background:t.surface, display:'flex', alignItems:'center', gap:10 }}>
+              <div style={{ width:10, height:10, borderRadius:'50%', background:t.red, animation:'blink 1s infinite' }} />
+              <span style={{ fontSize:'0.78rem', color:t.red, fontWeight:700 }}>Merekam... {recordDuration}s</span>
+              <button onClick={stopRecording} style={{ marginLeft:'auto', background:t.red, color:'#fff', border:'none', borderRadius:8, padding:'6px 14px', fontSize:'0.72rem', fontWeight:700, cursor:'pointer', display:'flex', alignItems:'center', gap:4 }}>
+                <StopIcon /> Selesai
+              </button>
+            </div>
+          )}
+
           {/* Input */}
-          <form onSubmit={handleSendChat} style={{ padding:16, borderTop:`1px solid ${t.border}`, background:t.surface, display:'flex', gap:10 }}>
-            <input type="text" value={chatInput} onChange={e=>setChatInput(e.target.value)} placeholder="Tanya sesuatu..." style={{ flex:1, background:t.surf2, border:`1px solid ${t.border}`, borderRadius:12, padding:'12px 16px', fontSize:'0.85rem', color:t.text }} disabled={isChatLoading} />
-            <button type="submit" disabled={isChatLoading || !chatInput.trim()} style={{ background:t.accent, color:'#fff', border:'none', borderRadius:12, width:44, display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer', opacity:(!chatInput.trim()||isChatLoading)?0.5:1 }}>
+          <form onSubmit={handleSendChat} style={{ padding:'12px 16px', borderTop: (chatFiles.length > 0 || isRecording) ? 'none' : `1px solid ${t.border}`, background:t.surface, display:'flex', gap:8, alignItems:'center' }}>
+            {/* Hidden file inputs */}
+            <input ref={imageInputRef} type="file" accept="image/*" capture="environment" style={{ display:'none' }} onChange={e => { const f = e.target.files?.[0]; if (f) addChatFile(f, 'image'); e.target.value = ''; }} />
+            <input ref={pdfInputRef} type="file" accept=".pdf,application/pdf" style={{ display:'none' }} onChange={e => { const f = e.target.files?.[0]; if (f) addChatFile(f, 'pdf'); e.target.value = ''; }} />
+
+            {/* Media buttons */}
+            <div style={{ display:'flex', gap:2 }}>
+              <button type="button" onClick={() => imageInputRef.current?.click()} disabled={isChatLoading || isRecording}
+                title="Kirim Foto"
+                style={{ background:'none', border:'none', color:t.sub, cursor:'pointer', padding:6, borderRadius:8, display:'flex', transition:'color 0.2s', opacity:(isChatLoading||isRecording)?0.3:1 }}
+                onMouseEnter={e => (e.currentTarget.style.color = t.accent)}
+                onMouseLeave={e => (e.currentTarget.style.color = t.sub)}>
+                <CameraIcon />
+              </button>
+              <button type="button" onClick={isRecording ? stopRecording : startRecording} disabled={isChatLoading}
+                title={isRecording ? 'Stop Rekaman' : 'Rekam Audio'}
+                style={{ background:'none', border:'none', color:isRecording ? t.red : t.sub, cursor:'pointer', padding:6, borderRadius:8, display:'flex', transition:'color 0.2s', opacity:isChatLoading?0.3:1 }}
+                onMouseEnter={e => { if (!isRecording) e.currentTarget.style.color = t.accent; }}
+                onMouseLeave={e => { if (!isRecording) e.currentTarget.style.color = t.sub; }}>
+                {isRecording ? <StopIcon /> : <MicIcon />}
+              </button>
+              <button type="button" onClick={() => pdfInputRef.current?.click()} disabled={isChatLoading || isRecording}
+                title="Upload PDF"
+                style={{ background:'none', border:'none', color:t.sub, cursor:'pointer', padding:6, borderRadius:8, display:'flex', transition:'color 0.2s', opacity:(isChatLoading||isRecording)?0.3:1 }}
+                onMouseEnter={e => (e.currentTarget.style.color = t.accent)}
+                onMouseLeave={e => (e.currentTarget.style.color = t.sub)}>
+                <ClipIcon />
+              </button>
+            </div>
+
+            <input type="text" value={chatInput} onChange={e=>setChatInput(e.target.value)} placeholder={chatFiles.length > 0 ? 'Tambahkan keterangan...' : 'Tanya sesuatu...'} style={{ flex:1, background:t.surf2, border:`1px solid ${t.border}`, borderRadius:12, padding:'10px 14px', fontSize:'0.82rem', color:t.text }} disabled={isChatLoading || isRecording} />
+            <button type="submit" disabled={isChatLoading || isRecording || (!chatInput.trim() && chatFiles.length === 0)} style={{ background:t.accent, color:'#fff', border:'none', borderRadius:12, width:40, height:40, display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer', opacity:((!chatInput.trim() && chatFiles.length === 0)||isChatLoading||isRecording)?0.4:1, flexShrink:0, transition:'opacity 0.2s' }}>
               <SendIcon />
             </button>
           </form>
@@ -1631,6 +2223,31 @@ export default function ExpenseTable({ expenses }: { expenses: Expense[] }) {
         {showChat ? <XIcon /> : <SparklesIcon />}
       </button>
 
+      {/* ══════════════ CUSTOM NOTIFICATIONS ══════════════ */}
+      {toast && (
+        <div className={`toast-box ${toast.type}`}>
+           {toast.type === 'success' && <span>✅</span>}
+           {toast.type === 'error' && <span>❌</span>}
+           {toast.type === 'info' && <span>ℹ️</span>}
+           {toast.msg}
+        </div>
+      )}
+
+      {confirmModal && (
+        <div className="conf-overlay" onClick={() => setConfirmModal(null)}>
+          <div className="conf-card" onClick={e => e.stopPropagation()}>
+            <div style={{ width: 44, height: 44, borderRadius: 12, background: t.red + '15', color: t.red, display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 16, fontSize: '1.2rem' }}>
+              ⚠️
+            </div>
+            <h3 style={{ fontSize: '1.05rem', fontWeight: 800, marginBottom: 8 }}>Konfirmasi</h3>
+            <p style={{ fontSize: '0.82rem', color: t.sub, lineHeight: 1.5, marginBottom: 20 }}>{confirmModal.msg}</p>
+            <div style={{ display: 'flex', gap: 10 }}>
+              <button onClick={() => setConfirmModal(null)} style={{ flex: 1, padding: '10px', borderRadius: 10, background: t.surf2, border: `1px solid ${t.border}`, color: t.text, fontWeight: 700, fontSize: '0.8rem', cursor: 'pointer' }}>Batal</button>
+              <button onClick={confirmModal.onConfirm} style={{ flex: 1, padding: '10px', borderRadius: 10, background: t.red, border: 'none', color: '#fff', fontWeight: 700, fontSize: '0.8rem', cursor: 'pointer', boxShadow: `0 4px 12px ${t.red}40` }}>Hapus</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
