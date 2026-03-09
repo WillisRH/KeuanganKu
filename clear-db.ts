@@ -6,6 +6,9 @@ async function main() {
   
   console.log('🗑️ Deleting all Expenses...');
   await prisma.expense.deleteMany();
+
+  console.log('🗑️ Deleting all Budgets...');
+  await prisma.budget.deleteMany();
   
   console.log('✅ Database cleared successfully!');
 }

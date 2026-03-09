@@ -355,6 +355,23 @@ export default function ExpenseTable({ expenses }: { expenses: Expense[] }) {
   const recordTimerRef = useRef<NodeJS.Timeout|null>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
   const pdfInputRef = useRef<HTMLInputElement>(null);
+  const pendingMonthlyPrintRef = useRef(false);
+  const pendingMonthlyTitleRef = useRef('');
+
+  // Wait for QR code to render before calling window.print()
+  useEffect(() => {
+    if (monthlyPrintId && pendingMonthlyPrintRef.current) {
+      pendingMonthlyPrintRef.current = false;
+      // Double rAF ensures the browser has painted the QR SVG to DOM
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          window.print();
+          document.title = pendingMonthlyTitleRef.current;
+          setMonthlyPrintId(null);
+        });
+      });
+    }
+  }, [monthlyPrintId]);
 
   const addChatFile = (file: File, type: 'image'|'audio'|'pdf') => {
     const preview = type === 'image' ? URL.createObjectURL(file) : '';
@@ -807,187 +824,242 @@ export default function ExpenseTable({ expenses }: { expenses: Expense[] }) {
   return (
     <div style={{ minHeight:'100vh', background:t.bg, color:t.text, fontFamily:"'Outfit', system-ui, sans-serif" }}>
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&display=swap');
         *,*::before,*::after { box-sizing:border-box; margin:0; padding:0; }
 
-        @keyframes up    { from { opacity:0; transform:translateY(12px) } to { opacity:1; transform:none } }
-        @keyframes scIn  { from { opacity:0; transform:scale(.96) } to { opacity:1; transform:scale(1) } }
-        @keyframes blink { 0%,100%{opacity:1} 50%{opacity:.3} }
+        /* ── Keyframes ─────────────────────────────────── */
+        @keyframes up      { from { opacity:0; transform:translateY(18px) } to { opacity:1; transform:none } }
+        @keyframes scIn    { from { opacity:0; transform:scale(.94) } to { opacity:1; transform:scale(1) } }
+        @keyframes blink   { 0%,100%{opacity:1} 50%{opacity:.3} }
+        @keyframes slideUp { from { transform:translate(-50%,20px); opacity:0 } to { transform:translate(-50%,0); opacity:1 } }
+        @keyframes shimmer { 0%{background-position:-200% 0} 100%{background-position:200% 0} }
+        @keyframes popIn   { 0%{transform:scale(0.8);opacity:0} 60%{transform:scale(1.05)} 100%{transform:scale(1);opacity:1} }
+        @keyframes barFill { from{width:0%} }
+        @keyframes fadeIn  { from{opacity:0} to{opacity:1} }
+        @keyframes glow    { 0%,100%{opacity:.6} 50%{opacity:1} }
 
-        .f1{animation:up .38s ease both .04s}
-        .f2{animation:up .38s ease both .09s}
-        .f3{animation:up .38s ease both .14s}
-        .f4{animation:up .38s ease both .19s}
-        .sc{animation:scIn .28s ease both}
+        /* ── Animation utilities ────────────────────────── */
+        .f1{animation:up .45s cubic-bezier(.16,1,.3,1) both .04s}
+        .f2{animation:up .45s cubic-bezier(.16,1,.3,1) both .10s}
+        .f3{animation:up .45s cubic-bezier(.16,1,.3,1) both .16s}
+        .f4{animation:up .45s cubic-bezier(.16,1,.3,1) both .22s}
+        .sc{animation:scIn .32s cubic-bezier(.16,1,.3,1) both}
 
-        .row{transition:background .12s,transform .1s;cursor:pointer}
-        .row:hover{background:${t.surf2} !important}
-        .row:active{transform:scale(.996)}
+        /* ── Row (clickable table rows / cards) ─────────── */
+        .row { cursor:pointer; transition:background .15s ease, box-shadow .15s ease; position:relative; }
+        .row::after {
+          content:''; position:absolute; left:0; top:0; bottom:0; width:3px;
+          border-radius:0 3px 3px 0; background:${t.accent};
+          opacity:0; transition:opacity .2s ease;
+        }
+        .row:hover { background:${t.surf2} !important; }
+        .row:hover::after { opacity:1; }
+        .row:active { transform:scale(.999); }
 
-        .tab{border:none;background:none;cursor:pointer;font-family:inherit;
-          padding:7px 17px;border-radius:10px;font-size:.82rem;font-weight:600;
-          color:${t.sub};transition:all .15s}
-        .tab.on{background:${t.accent}18;color:${t.accent}}
+        /* ── Tab buttons ────────────────────────────────── */
+        .tab {
+          position:relative; border:none; background:none; cursor:pointer;
+          font-family:inherit; padding:8px 18px; border-radius:10px;
+          font-size:.83rem; font-weight:600; color:${t.sub};
+          transition:all .2s cubic-bezier(.16,1,.3,1); white-space:nowrap;
+        }
+        .tab.on {
+          background:${dark ? t.accent+'28' : t.accent+'14'};
+          color:${t.accent};
+          box-shadow:0 2px 10px ${t.accent}22;
+        }
+        .tab:not(.on):hover { color:${t.text}; background:${t.surf2}; }
 
-        .pill{border:none;background:none;cursor:pointer;font-family:inherit;
-          padding:5px 14px;border-radius:99px;font-size:.76rem;font-weight:600;
-          color:${t.sub};transition:all .15s}
-        .pill.on{background:${dark?'#252840':'#ECEFFE'};color:${t.accent}}
-        .pill:hover{color:${t.text}}
+        /* ── Pill filter ────────────────────────────────── */
+        .pill {
+          border:none; background:none; cursor:pointer; font-family:inherit;
+          padding:6px 15px; border-radius:99px; font-size:.76rem; font-weight:600;
+          color:${t.sub}; transition:all .2s ease; white-space:nowrap;
+        }
+        .pill.on {
+          background:${dark ? t.accent+'30' : t.accent+'14'};
+          color:${t.accent};
+          box-shadow:0 2px 10px ${t.accent}22;
+        }
+        .pill:not(.on):hover { color:${t.text}; background:${t.surf2}; }
 
-        .ibtn{display:inline-flex;align-items:center;gap:5px;border:1px solid ${t.border};
-          background:${t.surface};color:${t.sub};border-radius:10px;padding:7px 13px;
-          font-size:.77rem;font-weight:600;cursor:pointer;font-family:inherit;transition:all .15s}
-        .ibtn:hover{color:${t.accent};border-color:${t.accent}40}
+        /* ── Inline buttons ─────────────────────────────── */
+        .ibtn {
+          display:inline-flex; align-items:center; gap:5px;
+          border:1px solid ${t.border}; background:${t.surface}; color:${t.sub};
+          border-radius:10px; padding:7px 14px; font-size:.78rem; font-weight:600;
+          cursor:pointer; font-family:inherit; transition:all .2s ease;
+        }
+        .ibtn:hover {
+          color:${t.accent}; border-color:${t.accent}55;
+          background:${t.accent}08; box-shadow:0 4px 16px ${t.accent}18;
+        }
 
-        .sth{cursor:pointer;user-select:none;transition:color .15s}
-        .sth:hover{color:${t.text} !important}
+        /* ── Sortable header ────────────────────────────── */
+        .sth { cursor:pointer; user-select:none; transition:color .15s; }
+        .sth:hover { color:${t.text} !important; }
 
-        input{font-family:inherit}
-        input::placeholder{color:${t.sub}}
-        input:focus{outline:none}
+        /* ── Card lift on hover ─────────────────────────── */
+        .card-lift { transition:transform .2s cubic-bezier(.16,1,.3,1), box-shadow .2s ease !important; }
+        .card-lift:hover {
+          transform:translateY(-3px);
+          box-shadow:0 20px 50px rgba(0,0,0,${dark?'.35':'.12'}) !important;
+        }
 
-        ::-webkit-scrollbar{width:3px;height:3px}
-        ::-webkit-scrollbar-track{background:transparent}
-        ::-webkit-scrollbar-thumb{background:${t.muted};border-radius:99px}
+        /* ── Input & Select ────────────────────────────── */
+        input, select, textarea { font-family:inherit; }
+        input::placeholder { color:${t.sub}; }
+        input:focus, select:focus, textarea:focus { outline:none; }
 
-        @media print{
-          .np{display:none !important}
-          .print-only{display:block !important}
+        .field-input {
+          width:100%; padding:12px 14px; border-radius:12px;
+          border:1.5px solid ${t.border}; background:${t.surf2};
+          color:${t.text}; font-family:inherit;
+          transition:border-color .2s ease, box-shadow .2s ease;
+        }
+        .field-input:focus {
+          border-color:${t.accent}80;
+          box-shadow:0 0 0 3px ${t.accent}14;
+          background:${t.surface};
+        }
+        .field-label {
+          display:block; font-size:0.68rem; font-weight:700;
+          letter-spacing:0.06em; color:${t.sub};
+          text-transform:uppercase; margin-bottom:7px;
+        }
+
+        /* ── Scrollbar ──────────────────────────────────── */
+        ::-webkit-scrollbar { width:4px; height:4px; }
+        ::-webkit-scrollbar-track { background:transparent; }
+        ::-webkit-scrollbar-thumb { background:${t.muted}; border-radius:99px; }
+
+        /* ── Progress bar fill animation ────────────────── */
+        .bar-fill { animation: barFill .8s cubic-bezier(.16,1,.3,1) both; }
+
+        /* ── Markdown chat ──────────────────────────────── */
+        .md-chat p { margin-bottom:8px; }
+        .md-chat p:last-child { margin-bottom:0; }
+        .md-chat ul, .md-chat ol { margin-left:18px; margin-bottom:8px; }
+        .md-chat li { margin-bottom:4px; }
+        .md-chat strong, .md-chat b { font-weight:800 !important; color:inherit; }
+        .md-chat code { background:${dark?'#000':'#eef'}; padding:2px 4px; border-radius:4px; font-family:monospace; font-size:0.8rem; }
+
+        /* ── Print ──────────────────────────────────────── */
+        @media print {
+          .np { display:none !important; }
+          .print-only { display:block !important; }
           .modal-backdrop-print { position:absolute !important; top:0 !important; left:0 !important; right:0 !important; align-items:flex-start !important; padding-top:40px !important; background:transparent !important; backdrop-filter:none !important; }
           .pa { box-shadow:none !important; border:1px solid #ccc !important; }
         }
-        .print-only { display: none; }
+        .print-only { display:none; }
         .watermark {
-          position: absolute; top: 45%; left: 50%;
-          transform: translate(-50%, -50%) rotate(-45deg);
-          font-size: clamp(4rem, 8vw, 6rem); font-weight: 900;
-          color: rgba(34, 197, 94, 0.08);
-          pointer-events: none; z-index: 0;
-          letter-spacing: 15px; user-select: none;
+          position:absolute; top:45%; left:50%;
+          transform:translate(-50%,-50%) rotate(-45deg);
+          font-size:clamp(4rem,8vw,6rem); font-weight:900;
+          color:rgba(34,197,94,0.08); pointer-events:none; z-index:0;
+          letter-spacing:15px; user-select:none;
         }
 
-        .md-chat p { margin-bottom: 8px; }
-        .md-chat p:last-child { margin-bottom: 0; }
-        .md-chat ul, .md-chat ol { margin-left: 18px; margin-bottom: 8px; }
-        .md-chat li { margin-bottom: 4px; }
-        .md-chat strong, .md-chat b { font-weight: 800 !important; color: inherit; }
-        .md-chat code { background: ${dark?'#000':'#eef'}; padding: 2px 4px; border-radius: 4px; font-family: monospace; font-size: 0.8rem; }
+        /* ── Toast ──────────────────────────────────────── */
+        .toast-box {
+          position:fixed; bottom:30px; left:50%; transform:translateX(-50%);
+          background:${dark?'rgba(10,12,20,0.94)':'rgba(17,24,39,0.92)'};
+          backdrop-filter:blur(24px); -webkit-backdrop-filter:blur(24px);
+          color:#fff; padding:13px 22px; border-radius:14px; z-index:10000;
+          box-shadow:0 20px 60px rgba(0,0,0,0.5), 0 0 0 1px rgba(255,255,255,0.08);
+          display:flex; align-items:center; gap:10px;
+          font-weight:600; font-size:0.85rem;
+          animation:slideUp .3s cubic-bezier(.16,1,.3,1);
+          min-width:220px;
+        }
+        .toast-box.success { border-bottom:2.5px solid #22C55E; }
+        .toast-box.error   { border-bottom:2.5px solid #EF4444; }
+        .toast-box.info    { border-bottom:2.5px solid ${t.accent}; }
 
+        /* ── Confirm modal ──────────────────────────────── */
+        .conf-overlay {
+          position:fixed; inset:0;
+          background:rgba(0,0,0,${dark?'.75':'.55'}); backdrop-filter:blur(16px);
+          display:flex; align-items:center; justify-content:center; z-index:10001;
+          animation:fadeIn .2s ease;
+        }
+        .conf-card {
+          background:${t.surface}; border:1px solid ${t.border}; border-radius:24px;
+          padding:28px; width:90%; max-width:360px;
+          box-shadow:0 40px 80px rgba(0,0,0,0.4), 0 0 0 1px ${t.border};
+          animation:scIn .25s cubic-bezier(.16,1,.3,1);
+        }
+
+        /* ── Mobile ─────────────────────────────────────── */
         @media(max-width:640px){
           .dsk{display:none !important}
           .mob{display:flex !important}
           .sg{grid-template-columns:1fr 1fr !important}
           .ha .ibtn span{display:none}
           .ha .ibtn{padding:7px !important}
-          .dsk-only { display: none !important; }
-          .mob-only { display: flex !important; }
+          .dsk-only { display:none !important; }
+          .mob-only { display:flex !important; }
+          .sidebar { margin-bottom:0.5rem !important; }
+          .sidebar > div { margin-bottom:0.75rem !important; }
 
-          /* Tighter mobile spacing */
-          .sidebar { margin-bottom: 0.5rem !important; }
-          .sidebar > div { margin-bottom: 0.75rem !important; }
-
-          /* Sticky tab bar on mobile */
           .mob-sticky-tabs {
-            position: sticky; top: 0; z-index: 50;
-            background: ${t.bg}; padding: 10px 0 8px;
-            margin: 0 -1rem; padding-left: 1rem; padding-right: 1rem;
-            border-bottom: 1px solid ${t.border};
-            backdrop-filter: blur(16px);
-            -webkit-backdrop-filter: blur(16px);
+            position:sticky; top:0; z-index:50;
+            background:${t.bg}d0;
+            padding:10px 0 8px;
+            margin:0 -1rem; padding-left:1rem; padding-right:1rem;
+            border-bottom:1px solid ${t.border};
+            backdrop-filter:blur(24px); -webkit-backdrop-filter:blur(24px);
           }
-
-          /* Full-width scrollable tabs on mobile */
           .mob-tabs-scroll {
-            overflow-x: auto; -webkit-overflow-scrolling: touch;
-            scrollbar-width: none; -ms-overflow-style: none;
+            overflow-x:auto; -webkit-overflow-scrolling:touch;
+            scrollbar-width:none; -ms-overflow-style:none;
           }
-          .mob-tabs-scroll::-webkit-scrollbar { display: none; }
-
-          /* More compact mobile cards */
-          .mob-card {
-            padding: 11px 13px !important;
-            border-radius: 12px !important;
-          }
-
-          /* Month navigator mobile refinement */
-          .mn-wrapper { 
-            order: 3; width: 100%; margin-top: 0.5rem; 
-            justify-content: center !important;
-          }
-          .mn-card { 
-            width: 100%; max-width: 100%; 
-            padding: 6px 8px !important; 
-            border-radius: 12px !important;
-            background: ${t.surface} !important;
-          }
-          .mn-btn { font-size: 1.2rem !important; padding: 6px 12px !important; }
-          .mn-label { font-size: 0.9rem !important; }
-
-          /* Better mobile balance card */
-          .mob-balance-card {
-            border-radius: 18px !important;
-            padding: 1.1rem !important;
-          }
+          .mob-tabs-scroll::-webkit-scrollbar { display:none; }
+          .mob-card { padding:13px 14px !important; border-radius:16px !important; }
+          .mn-wrapper { order:3; width:100%; margin-top:0.5rem; justify-content:center !important; }
+          .mn-card { width:100%; max-width:100%; padding:6px 8px !important; border-radius:12px !important; background:${t.surface} !important; }
+          .mn-btn { font-size:1.2rem !important; padding:6px 12px !important; }
+          .mn-label { font-size:0.9rem !important; }
+          .mob-balance-card { border-radius:20px !important; padding:1.25rem !important; }
 
           /* Full-screen chat on mobile */
           .chat-window {
-            top: 0 !important; left: 0 !important; right: 0 !important; bottom: 0 !important;
-            width: 100% !important; max-width: 100% !important;
-            height: 100% !important; max-height: 100% !important;
-            border-radius: 0 !important;
-            border: none !important;
+            top:0 !important; left:0 !important; right:0 !important; bottom:0 !important;
+            width:100% !important; max-width:100% !important;
+            height:100dvh !important; max-height:100dvh !important;
+            border-radius:0 !important; border:none !important;
           }
+          .chat-window .chat-messages { padding:16px !important; }
+          .chat-window .chat-header {
+            padding:14px 16px !important;
+            padding-top:calc(14px + env(safe-area-inset-top)) !important;
+          }
+          .chat-window .chat-input-area {
+            padding-bottom:calc(12px + env(safe-area-inset-bottom)) !important;
+          }
+          .chat-fab { bottom:calc(24px + env(safe-area-inset-bottom)) !important; }
         }
         @media(min-width:641px){
           .mob{display:none !important}
-          .mob-only { display: none !important; }
-          .dsk-only { display: flex !important; }
+          .mob-only { display:none !important; }
+          .dsk-only { display:flex !important; }
         }
 
-        /* Desktop two-column layout */
+        /* ── Desktop grid ───────────────────────────────── */
         @media(min-width:900px){
-          .dsk-grid { display: grid; grid-template-columns: 310px 1fr; gap: 2rem; align-items: start; }
-          .sidebar { position: sticky; top: 1.5rem; }
+          .dsk-grid { display:grid; grid-template-columns:310px 1fr; gap:2rem; align-items:start; }
+          .sidebar { position:sticky; top:1.5rem; }
         }
         @media(max-width:899px){
-          .dsk-grid { display: flex; flex-direction: column; }
-          .sidebar-only { display: none !important; }
-        }
-
-        /* Custom Toast & Confirm */
-        @keyframes slideUp { from { transform: translate(-50%, 20px); opacity: 0; } to { transform: translate(-50%, 0); opacity: 1; } }
-        .toast-box {
-          position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%);
-          background: rgba(15, 23, 42, 0.9); backdrop-filter: blur(12px);
-          color: #fff; padding: 12px 20px; border-radius: 12px; z-index: 10000;
-          box-shadow: 0 10px 40px rgba(0,0,0,0.3);
-          border-top: 1px solid rgba(255,255,255,0.1);
-          border-right: 1px solid rgba(255,255,255,0.1);
-          border-bottom: 1px solid rgba(255,255,255,0.1);
-          border-left: 1px solid rgba(255,255,255,0.1);
-          display: flex; align-items: center; gap: 10px; font-weight: 600; font-size: 0.85rem;
-          animation: slideUp 0.3s ease-out;
-        }
-        .toast-box.success { border-bottom-width: 3px; border-bottom-color: #22C55E; }
-        .toast-box.error   { border-bottom-width: 3px; border-bottom-color: #EF4444; }
-        .toast-box.info    { border-bottom-width: 3px; border-bottom-color: ${t.accent}; }
-
-        .conf-overlay {
-          position: fixed; inset: 0; background: rgba(0,0,0,0.6); backdrop-filter: blur(8px);
-          display: flex; align-items: center; justify-content: center; z-index: 10001;
-          animation: scIn 0.2s ease;
-        }
-        .conf-card {
-          background: ${t.surface}; border: 1px solid ${t.border}; border-radius: 20px;
-          padding: 24px; width: 90%; max-width: 360px; box-shadow: 0 30px 60px rgba(0,0,0,0.25);
+          .dsk-grid { display:flex; flex-direction:column; }
+          .sidebar-only { display:none !important; }
         }
       `}</style>
 
       <div className="np" style={{ maxWidth:1280, margin:'0 auto', padding:'clamp(1rem,4vw,2.5rem) clamp(1rem,4vw,1.75rem)' }}>
 
         {/* ── HEADER ── */}
-        <header className="np" style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:'clamp(1rem,4vw,1.75rem)', flexWrap:'wrap', gap:'clamp(10px,3vw,15px)' }}>
+        <header className="np" style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:'clamp(1rem,4vw,1.75rem)', flexWrap:'wrap', gap:'clamp(10px,3vw,15px)', paddingBottom:'clamp(0.75rem,3vw,1.25rem)', borderBottom:`1px solid ${t.border}` }}>
           <div style={{ display:'flex', alignItems:'center', gap:'clamp(8px,2vw,12px)' }}>
             <div style={{ width:'clamp(36px,9vw,42px)', height:'clamp(36px,9vw,42px)', borderRadius:'clamp(11px,3vw,14px)', background:`linear-gradient(135deg,${t.accent},#9B7CF8)`, display:'flex', alignItems:'center', justifyContent:'center', boxShadow:`0 6px 18px ${t.accent}40`, color:'#fff' }}>
               <WalletIcon size={22} />
@@ -1068,7 +1140,7 @@ export default function ExpenseTable({ expenses }: { expenses: Expense[] }) {
                   <span style={{ fontSize:'0.72rem', color:'#FCA5A5', display:'flex', alignItems:'center', gap:4 }}><DnIcon /> {fmtS(stats.exp)}</span>
                 </div>
                 
-                <button onClick={()=>setShowAdd(true)} style={{ width:'100%', height:38, borderRadius:10, background:`linear-gradient(135deg,${t.accent},#9B7CF8)`, color:'#fff', border:'none', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', gap:8, fontWeight:700, fontSize:'0.8rem', boxShadow:`0 6px 20px ${t.accent}40`, transition:'transform 0.1s' }} onMouseDown={e=>e.currentTarget.style.transform='scale(0.96)'} onMouseUp={e=>e.currentTarget.style.transform='scale(1)'} onMouseLeave={e=>e.currentTarget.style.transform='scale(1)'}>
+                <button onClick={()=>setShowAdd(true)} style={{ width:'100%', height:42, borderRadius:12, background:`linear-gradient(135deg,${t.accent},#9B7CF8)`, color:'#fff', border:'none', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', gap:8, fontWeight:700, fontSize:'0.82rem', boxShadow:`0 8px 24px ${t.accent}50`, transition:'transform 0.15s, box-shadow 0.15s', letterSpacing:'0.01em' }} onMouseDown={e=>{e.currentTarget.style.transform='scale(0.96)';e.currentTarget.style.boxShadow=`0 4px 12px ${t.accent}40`}} onMouseUp={e=>{e.currentTarget.style.transform='scale(1)';e.currentTarget.style.boxShadow=`0 8px 24px ${t.accent}50`}} onMouseLeave={e=>{e.currentTarget.style.transform='scale(1)';e.currentTarget.style.boxShadow=`0 8px 24px ${t.accent}50`}}>
                   <PlusIcon /> Catat Transaksi
                 </button>
               </div>
@@ -1080,13 +1152,14 @@ export default function ExpenseTable({ expenses }: { expenses: Expense[] }) {
                 { label:'Pemasukan', val:stats.inc, color:t.green, svg:<UpIcon />, count:data.filter(e=>e.type==='income').length },
                 { label:'Pengeluaran', val:stats.exp, color:t.red, svg:<DnIcon />, count:data.filter(e=>e.type==='expense').length },
               ].map((c, i) => (
-                <div key={i} className={`f${i+2}`} style={{ background:t.surface, border:`1px solid ${t.border}`, borderRadius:14, padding:'12px', boxShadow:t.shad2 }}>
-                  <div style={{ display:'flex', alignItems:'center', gap:5, marginBottom:6 }}>
-                    <div style={{ width:20, height:20, borderRadius:6, background:c.color+'20', color:c.color, display:'flex', alignItems:'center', justifyContent:'center' }}>{c.svg}</div>
-                    <span style={{ fontSize:'0.6rem', fontWeight:700, textTransform:'uppercase', letterSpacing:'0.05em', color:t.sub }}>{c.label}</span>
+                <div key={i} className={`f${i+2} card-lift`} style={{ background:t.surface, border:`1px solid ${t.border}`, borderRadius:16, padding:'14px', boxShadow:t.shad2, overflow:'hidden', position:'relative' }}>
+                  <div style={{ position:'absolute', top:0, right:0, width:56, height:56, borderRadius:'0 0 0 40px', background:`linear-gradient(135deg,${c.color}18,${c.color}06)`, pointerEvents:'none' }} />
+                  <div style={{ width:32, height:32, borderRadius:9, background:`linear-gradient(135deg,${c.color}35,${c.color}18)`, color:c.color, display:'flex', alignItems:'center', justifyContent:'center', marginBottom:10, boxShadow:`0 4px 12px ${c.color}25` }}>
+                    {c.svg}
                   </div>
-                  <p style={{ fontSize:'0.88rem', fontWeight:800, color:c.color, letterSpacing:'-0.3px' }}>{fmtS(c.val)}</p>
-                  <p style={{ fontSize:'0.62rem', color:t.sub, marginTop:2 }}>{c.count} transaksi</p>
+                  <p style={{ fontSize:'0.6rem', fontWeight:700, textTransform:'uppercase', letterSpacing:'0.07em', color:t.sub, marginBottom:4 }}>{c.label}</p>
+                  <p style={{ fontSize:'1rem', fontWeight:900, color:c.color, letterSpacing:'-0.5px', lineHeight:1 }}>{fmtS(c.val)}</p>
+                  <p style={{ fontSize:'0.62rem', color:t.sub, marginTop:5 }}>{c.count} transaksi</p>
                 </div>
               ))}
             </div>
@@ -1119,11 +1192,11 @@ export default function ExpenseTable({ expenses }: { expenses: Expense[] }) {
                           </div>
                           <span style={{ fontSize:'0.68rem', fontWeight:800, color:barColor, flexShrink:0 }}>{pct.toFixed(0)}%</span>
                         </div>
-                        <div style={{ height:5, background:t.border, borderRadius:4, overflow:'hidden' }}>
-                          <div style={{ width:`${pct}%`, height:'100%', background:barColor, borderRadius:4, transition:'width 0.5s ease-out' }}/>
+                        <div style={{ height:7, background:t.surf2, borderRadius:99, overflow:'hidden' }}>
+                          <div className="bar-fill" style={{ width:`${pct}%`, height:'100%', background: isDanger ? `linear-gradient(90deg,${t.red},#FF8080)` : isWarning ? `linear-gradient(90deg,${t.yellow},#FCD34D)` : `linear-gradient(90deg,${t.green},#4ADE80)`, borderRadius:99, boxShadow: isDanger ? `0 0 8px ${t.red}60` : isWarning ? `0 0 8px ${t.yellow}60` : `0 0 8px ${t.green}50` }}/>
                         </div>
-                        <div style={{ display:'flex', justifyContent:'space-between', marginTop:4, fontSize:'0.6rem', color:t.sub }}>
-                          <span>{fmtS(spent)}</span>
+                        <div style={{ display:'flex', justifyContent:'space-between', marginTop:5, fontSize:'0.6rem', color:t.sub }}>
+                          <span style={{ fontWeight:600 }}>{fmtS(spent)}</span>
                           <span>/ {fmtS(b.amount)}</span>
                         </div>
                       </div>
@@ -1140,16 +1213,19 @@ export default function ExpenseTable({ expenses }: { expenses: Expense[] }) {
             {/* ── TOP SPENDER ── */}
             {top3.length > 0 && (
               <div style={{ background:t.surface, border:`1px solid ${t.border}`, borderRadius:16, padding:'16px', boxShadow:t.shad2, marginTop:'1rem' }}>
-                <p style={{ fontSize:'0.68rem', fontWeight:700, textTransform:'uppercase', letterSpacing:'0.07em', color:t.sub, marginBottom:12 }}>🔥 Top Pengeluaran</p>
+                <p style={{ fontSize:'0.68rem', fontWeight:700, textTransform:'uppercase', letterSpacing:'0.07em', color:t.sub, marginBottom:14 }}>🔥 Top Pengeluaran</p>
                 {top3.map((e, i) => {
                   const cat = getCat(e.category);
                   return (
-                    <div key={e.id} style={{ display:'flex', alignItems:'center', gap:10, marginBottom:i<2?10:0 }}>
-                      <div style={{ width:28, height:28, borderRadius:8, background:cat.color+'18', display:'flex', alignItems:'center', justifyContent:'center', fontSize:'0.85rem', flexShrink:0 }}>{cat.emoji}</div>
+                    <div key={e.id} style={{ display:'flex', alignItems:'center', gap:10, marginBottom:i<2?12:0, padding:'6px 8px', borderRadius:10, transition:'background .15s', cursor:'default' }}
+                      onMouseEnter={el=>el.currentTarget.style.background=t.surf2}
+                      onMouseLeave={el=>el.currentTarget.style.background='transparent'}>
+                      <div style={{ width:32, height:32, borderRadius:9, background:`linear-gradient(135deg,${cat.color}28,${cat.color}12)`, display:'flex', alignItems:'center', justifyContent:'center', fontSize:'0.9rem', flexShrink:0, boxShadow:`0 2px 8px ${cat.color}20` }}>{cat.emoji}</div>
                       <div style={{ flex:1, minWidth:0 }}>
                         <p style={{ fontWeight:600, fontSize:'0.78rem', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{e.item}</p>
+                        <p style={{ fontSize:'0.6rem', color:t.sub, marginTop:1, textTransform:'capitalize' }}>{e.category}</p>
                       </div>
-                      <span style={{ fontWeight:800, color:t.red, fontSize:'0.75rem', whiteSpace:'nowrap' }}>{fmtS(e.amount)}</span>
+                      <span style={{ fontWeight:800, color:t.red, fontSize:'0.78rem', whiteSpace:'nowrap' }}>{fmtS(e.amount)}</span>
                     </div>
                   );
                 })}
@@ -1183,7 +1259,7 @@ export default function ExpenseTable({ expenses }: { expenses: Expense[] }) {
           <div className="sc" style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(260px,1fr))', gap:'1rem', marginBottom:'1.5rem' }}>
 
             {/* Pie */}
-            <div style={{ background:t.surface, border:`1px solid ${t.border}`, borderRadius:16, padding:'20px 20px 14px', boxShadow:t.shad2 }}>
+            <div className="card-lift" style={{ background:t.surface, border:`1px solid ${t.border}`, borderRadius:18, padding:'20px 20px 14px', boxShadow:t.shad2 }}>
               <p style={{ fontSize:'0.72rem', fontWeight:700, textTransform:'uppercase', letterSpacing:'0.07em', color:t.sub, marginBottom:14 }}>Kategori Pengeluaran</p>
               {chartData.length > 0 ? (
                 <>
@@ -1215,7 +1291,7 @@ export default function ExpenseTable({ expenses }: { expenses: Expense[] }) {
             </div>
 
             {/* Bar */}
-            <div style={{ background:t.surface, border:`1px solid ${t.border}`, borderRadius:16, padding:'20px 20px 14px', boxShadow:t.shad2 }}>
+            <div className="card-lift" style={{ background:t.surface, border:`1px solid ${t.border}`, borderRadius:18, padding:'20px 20px 14px', boxShadow:t.shad2 }}>
               <p style={{ fontSize:'0.72rem', fontWeight:700, textTransform:'uppercase', letterSpacing:'0.07em', color:t.sub, marginBottom:14 }}>Trend Bulanan</p>
               {monthlyData.length > 0 ? (
                 <>
@@ -1249,7 +1325,7 @@ export default function ExpenseTable({ expenses }: { expenses: Expense[] }) {
             </div>
 
             {/* Top 3 */}
-            <div style={{ background:t.surface, border:`1px solid ${t.border}`, borderRadius:16, padding:'20px', boxShadow:t.shad2 }}>
+            <div className="card-lift" style={{ background:t.surface, border:`1px solid ${t.border}`, borderRadius:18, padding:'20px', boxShadow:t.shad2 }}>
               <p style={{ fontSize:'0.72rem', fontWeight:700, textTransform:'uppercase', letterSpacing:'0.07em', color:t.sub, marginBottom:16 }}>🔥 Top Pengeluaran</p>
               {top3.length === 0
                 ? <div style={{ display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', gap:10, height:120 }}><EmptySVG color={t.muted}/><p style={{ fontSize:'0.78rem', color:t.sub }}>Belum ada data</p></div>
@@ -1372,7 +1448,9 @@ export default function ExpenseTable({ expenses }: { expenses: Expense[] }) {
           <>
             {/* Controls (Search + Sort) */}
             <div style={{ display:'flex', flexWrap:'wrap', gap:8, marginBottom:'0.9rem' }}>
-              <div style={{ flex:1, minWidth:200, display:'flex', alignItems:'center', gap:8, background:t.surface, border:`1px solid ${t.border}`, borderRadius:12, padding:'9px 14px', boxShadow:t.shad2 }}>
+              <div style={{ flex:1, minWidth:200, display:'flex', alignItems:'center', gap:8, background:t.surface, border:`1px solid ${t.border}`, borderRadius:13, padding:'10px 14px', boxShadow:t.shad2, transition:'border-color .2s, box-shadow .2s' }}
+                onFocusCapture={e=>{ e.currentTarget.style.borderColor=t.accent+'80'; e.currentTarget.style.boxShadow=`0 0 0 3px ${t.accent}14`; }}
+                onBlurCapture={e=>{ e.currentTarget.style.borderColor=t.border; e.currentTarget.style.boxShadow=t.shad2; }}>
                 <SearchIcon />
                 <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Cari item atau kategori..."
                   style={{ flex:1, background:'transparent', border:'none', color:t.text, fontSize:'0.875rem' }}/>
@@ -1403,7 +1481,7 @@ export default function ExpenseTable({ expenses }: { expenses: Expense[] }) {
               <div style={{ overflowX:'auto' }}>
                 <table style={{ width:'100%', borderCollapse:'collapse', minWidth:580 }}>
                   <thead>
-                    <tr style={{ borderBottom:`1px solid ${t.border}`, background:dark?'#161828':'#FAFBFC' }}>
+                    <tr style={{ borderBottom:`1px solid ${t.border}`, background:dark?'rgba(22,24,40,0.9)':'#F8FAFC' }}>
                       {[
                         { label:'Tanggal', key:'date' as const },
                         { label:'', key:null },
@@ -1421,10 +1499,15 @@ export default function ExpenseTable({ expenses }: { expenses: Expense[] }) {
                   </thead>
                   <tbody>
                     {paginatedData.length === 0 ? (
-                      <tr><td colSpan={6} style={{ textAlign:'center', padding:'3rem' }}>
-                        <div style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:10, color:t.sub }}>
-                          <EmptySVG color={t.muted} />
-                          <p style={{ fontSize:'0.83rem' }}>{search?`Tidak ada "${search}"` : 'Belum ada transaksi'}</p>
+                      <tr><td colSpan={6} style={{ textAlign:'center', padding:'3.5rem' }}>
+                        <div style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:12, color:t.sub }}>
+                          <div style={{ width:64, height:64, borderRadius:20, background:t.surf2, display:'flex', alignItems:'center', justifyContent:'center', fontSize:'1.8rem' }}>
+                            {search ? '🔍' : '📭'}
+                          </div>
+                          <div>
+                            <p style={{ fontSize:'0.88rem', fontWeight:700, color:t.text, marginBottom:4 }}>{search ? `Tidak ditemukan` : 'Belum ada transaksi'}</p>
+                            <p style={{ fontSize:'0.75rem', color:t.sub }}>{search ? `Coba kata kunci lain` : 'Tambah transaksi pertamamu!'}</p>
+                          </div>
                         </div>
                       </td></tr>
                     ) : paginatedData.map(e => {
@@ -1443,11 +1526,11 @@ export default function ExpenseTable({ expenses }: { expenses: Expense[] }) {
                             {(e.quantity??1)>1 && <span style={{ marginLeft:6, fontSize:'0.7rem', color:t.sub }}>×{e.quantity}</span>}
                           </td>
                           <td style={{ padding:'12px 16px' }}>
-                            <span style={{ display:'inline-flex', alignItems:'center', gap:4, background:cat.color+(dark?'25':'15'), color:cat.color, padding:'3px 9px', borderRadius:99, fontSize:'0.68rem', fontWeight:700, letterSpacing:'0.03em' }}>
+                            <span style={{ display:'inline-flex', alignItems:'center', gap:4, background:cat.color+(dark?'28':'16'), color:cat.color, padding:'4px 10px', borderRadius:99, fontSize:'0.68rem', fontWeight:700, letterSpacing:'0.03em', boxShadow:`0 1px 4px ${cat.color}20` }}>
                               {cat.emoji} {e.category}
                             </span>
                           </td>
-                          <td style={{ padding:'12px 16px', textAlign:'right', fontWeight:700, fontSize:'0.9rem', color:isIn?t.green:t.red, whiteSpace:'nowrap' }}>
+                          <td style={{ padding:'12px 16px', textAlign:'right', fontWeight:800, fontSize:'0.9rem', color:isIn?t.green:t.red, whiteSpace:'nowrap', letterSpacing:'-0.3px' }}>
                             {isIn?'+':'−'} {fmt(e.amount)}
                           </td>
                           <td style={{ padding:'12px 16px', fontSize:'0.77rem', color:t.sub, maxWidth:160, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
@@ -1474,27 +1557,35 @@ export default function ExpenseTable({ expenses }: { expenses: Expense[] }) {
             {/* Mobile Cards */}
             <div className="mob" style={{ flexDirection:'column', gap:'0.5rem' }}>
               {paginatedData.length === 0 ? (
-                <div style={{ textAlign:'center', padding:'2.5rem 1rem', color:t.sub, display:'flex', flexDirection:'column', alignItems:'center', gap:8 }}>
-                  <EmptySVG color={t.muted} />
-                  <p style={{ fontSize:'0.8rem' }}>{search?`Tidak ada "${search}"` : 'Belum ada transaksi'}</p>
+                <div style={{ textAlign:'center', padding:'3rem 1rem', color:t.sub, display:'flex', flexDirection:'column', alignItems:'center', gap:12 }}>
+                  <div style={{ width:60, height:60, borderRadius:18, background:t.surf2, display:'flex', alignItems:'center', justifyContent:'center', fontSize:'1.6rem' }}>
+                    {search ? '🔍' : '📭'}
+                  </div>
+                  <div>
+                    <p style={{ fontSize:'0.88rem', fontWeight:700, color:t.text, marginBottom:4 }}>{search ? 'Tidak ditemukan' : 'Belum ada transaksi'}</p>
+                    <p style={{ fontSize:'0.75rem', color:t.sub }}>{search ? 'Coba kata kunci lain' : 'Tambah transaksi pertamamu!'}</p>
+                  </div>
                 </div>
               ) : paginatedData.map(e => {
                 const cat = getCat(e.category);
                 const isIn = e.type === 'income';
                 return (
                   <div key={e.id} className="row mob-card" onClick={()=>setSelected(e)}
-                    style={{ background:t.surface, borderTop:`1px solid ${t.border}`, borderRight:`1px solid ${t.border}`, borderBottom:`1px solid ${t.border}`, borderLeft:`3px solid ${isIn?t.green:t.red}`, borderRadius:12, padding:'11px 13px', display:'flex', alignItems:'center', gap:10 }}>
-                    <div style={{ width:36, height:36, borderRadius:10, background:cat.color+'15', display:'flex', alignItems:'center', justifyContent:'center', fontSize:'1rem', flexShrink:0 }}>
+                    style={{ background:t.surface, borderTop:`1px solid ${t.border}`, borderRight:`1px solid ${t.border}`, borderBottom:`1px solid ${t.border}`, borderLeft:`3px solid ${isIn?t.green:t.red}`, borderRadius:16, padding:'13px 14px', display:'flex', alignItems:'center', gap:12, boxShadow:t.shad2 }}>
+                    <div style={{ width:44, height:44, borderRadius:13, background:`linear-gradient(135deg,${cat.color}28,${cat.color}10)`, display:'flex', alignItems:'center', justifyContent:'center', fontSize:'1.15rem', flexShrink:0, boxShadow:`0 3px 10px ${cat.color}20` }}>
                       {cat.emoji}
                     </div>
                     <div style={{ flex:1, minWidth:0 }}>
-                      <p style={{ fontWeight:700, fontSize:'0.82rem', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', marginBottom:3 }}>{e.item}</p>
-                      <div style={{ display:'flex', alignItems:'center', gap:6 }}>
-                        <span style={{ background:cat.color+'12', color:cat.color, padding:'1px 6px', borderRadius:99, fontSize:'0.58rem', fontWeight:700 }}>{e.category}</span>
-                        <span style={{ fontSize:'0.6rem', color:t.sub }}>{fmtDs(e.createdAt)}</span>
+                      <p style={{ fontWeight:700, fontSize:'0.88rem', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', marginBottom:5 }}>{e.item}</p>
+                      <div style={{ display:'flex', alignItems:'center', gap:5 }}>
+                        <span style={{ background:cat.color+'18', color:cat.color, padding:'2px 8px', borderRadius:99, fontSize:'0.62rem', fontWeight:700 }}>{cat.emoji} {e.category}</span>
+                        <span style={{ fontSize:'0.6rem', color:t.sub }}>· {fmtDs(e.createdAt)}</span>
                       </div>
                     </div>
-                    <p style={{ fontWeight:800, color:isIn?t.green:t.red, fontSize:'0.85rem', whiteSpace:'nowrap', flexShrink:0 }}>{isIn?'+':'−'}{fmtS(e.amount)}</p>
+                    <div style={{ textAlign:'right', flexShrink:0 }}>
+                      <p style={{ fontWeight:800, color:isIn?t.green:t.red, fontSize:'0.9rem', whiteSpace:'nowrap' }}>{isIn?'+':'−'}{fmtS(e.amount)}</p>
+                      <p style={{ fontSize:'0.58rem', color:t.sub, marginTop:3, textTransform:'uppercase', letterSpacing:'0.04em' }}>{isIn?'masuk':'keluar'}</p>
+                    </div>
                   </div>
                 );
               })}
@@ -1502,21 +1593,27 @@ export default function ExpenseTable({ expenses }: { expenses: Expense[] }) {
 
             {/* Pagination Controls */}
             {totalPages > 1 && (
-              <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginTop:'1.2rem', padding:'0 5px' }}>
-                <button 
-                  onClick={()=>setPage(p => Math.max(1, p-1))} 
-                  disabled={page === 1}
-                  style={{ background:t.surface, border:`1px solid ${t.border}`, borderRadius:10, padding:'8px 16px', fontSize:'0.78rem', fontWeight:600, color:page===1?t.muted:t.text, cursor:page===1?'not-allowed':'pointer', boxShadow:t.shad2, transition:'all .2s' }}>
-                  ← Prev
+              <div style={{ display:'flex', justifyContent:'center', alignItems:'center', gap:6, marginTop:'1.2rem' }}>
+                <button onClick={()=>setPage(p=>Math.max(1,p-1))} disabled={page===1}
+                  style={{ width:34, height:34, borderRadius:10, background:t.surface, border:`1px solid ${t.border}`, color:page===1?t.muted:t.text, cursor:page===1?'not-allowed':'pointer', display:'flex', alignItems:'center', justifyContent:'center', fontSize:'1rem', fontWeight:700, transition:'all .2s', boxShadow:t.shad2 }}>
+                  ‹
                 </button>
-                <div style={{ fontSize:'0.75rem', fontWeight:600, color:t.sub }}>
-                  Page <span style={{ color:t.text }}>{page}</span> of {totalPages}
-                </div>
-                <button 
-                  onClick={()=>setPage(p => Math.min(totalPages, p+1))} 
-                  disabled={page === totalPages}
-                  style={{ background:t.surface, border:`1px solid ${t.border}`, borderRadius:10, padding:'8px 16px', fontSize:'0.78rem', fontWeight:600, color:page===totalPages?t.muted:t.text, cursor:page===totalPages?'not-allowed':'pointer', boxShadow:t.shad2, transition:'all .2s' }}>
-                  Next →
+                {(() => {
+                  const pages: number[] = [];
+                  if (totalPages <= 5) { for (let i=1;i<=totalPages;i++) pages.push(i); }
+                  else if (page <= 3) { pages.push(1,2,3,4,5); }
+                  else if (page >= totalPages-2) { for (let i=totalPages-4;i<=totalPages;i++) pages.push(i); }
+                  else { for (let i=page-2;i<=page+2;i++) pages.push(i); }
+                  return pages.map(p => (
+                    <button key={p} onClick={()=>setPage(p)}
+                      style={{ width:34, height:34, borderRadius:10, background:page===p?t.accent:t.surface, border:`1px solid ${page===p?t.accent:t.border}`, color:page===p?'#fff':t.sub, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', fontSize:'0.82rem', fontWeight:700, transition:'all .2s', boxShadow:page===p?`0 4px 14px ${t.accent}50`:t.shad2 }}>
+                      {p}
+                    </button>
+                  ));
+                })()}
+                <button onClick={()=>setPage(p=>Math.min(totalPages,p+1))} disabled={page===totalPages}
+                  style={{ width:34, height:34, borderRadius:10, background:t.surface, border:`1px solid ${t.border}`, color:page===totalPages?t.muted:t.text, cursor:page===totalPages?'not-allowed':'pointer', display:'flex', alignItems:'center', justifyContent:'center', fontSize:'1rem', fontWeight:700, transition:'all .2s', boxShadow:t.shad2 }}>
+                  ›
                 </button>
               </div>
             )}
@@ -1541,9 +1638,10 @@ export default function ExpenseTable({ expenses }: { expenses: Expense[] }) {
           </div>
         </div>
 
-        <p style={{ textAlign:'center', marginTop:'1.5rem', fontSize:'0.65rem', color:t.sub, letterSpacing:'0.05em', paddingBottom:10 }}>
-          ● Sync otomatis 5s · WhatsApp Bot
-        </p>
+        <div style={{ textAlign:'center', marginTop:'1.5rem', paddingBottom:12, display:'flex', alignItems:'center', justifyContent:'center', gap:6 }}>
+          <div style={{ width:6, height:6, borderRadius:'50%', background:t.green, animation:'blink 2s ease infinite', boxShadow:`0 0 6px ${t.green}` }} />
+          <p style={{ fontSize:'0.65rem', color:t.sub, letterSpacing:'0.05em' }}>Sync otomatis 5s · WhatsApp Bot</p>
+        </div>
       </div>
 
       {/* ══════════════ MONTHLY RECEIPT PRINT ══════════════ */}
@@ -1735,49 +1833,61 @@ export default function ExpenseTable({ expenses }: { expenses: Expense[] }) {
             </button>
 
             <form onSubmit={handleAddSubmit} style={{ padding:'28px 24px' }}>
-              <h2 style={{ fontSize:'1.25rem', fontWeight:800, letterSpacing:'-0.5px', marginBottom:4 }}>Catat Transaksi</h2>
-              <p style={{ fontSize:'0.75rem', color:t.sub, marginBottom:22 }}>Masukkan detail pengeluaran atau pemasukan baru.</p>
+              {/* Modal Header */}
+              <div style={{ display:'flex', alignItems:'center', gap:12, marginBottom:20 }}>
+                <div style={{ width:42, height:42, borderRadius:12, background:`linear-gradient(135deg,${addType==='expense'?t.red:t.green}30,${addType==='expense'?t.red:t.green}10)`, display:'flex', alignItems:'center', justifyContent:'center', fontSize:'1.3rem', transition:'background .3s', flexShrink:0 }}>
+                  {addType==='expense' ? '↓' : '↑'}
+                </div>
+                <div>
+                  <h2 style={{ fontSize:'1.15rem', fontWeight:800, letterSpacing:'-0.5px', lineHeight:1.2 }}>Catat Transaksi</h2>
+                  <p style={{ fontSize:'0.72rem', color:t.sub, marginTop:2 }}>Pengeluaran atau pemasukan baru</p>
+                </div>
+              </div>
 
               {/* Type Toggle */}
-              <div style={{ display:'flex', background:t.surf2, borderRadius:12, padding:4, marginBottom:16, border:`1px solid ${t.border}` }}>
-                <button type="button" onClick={()=>setAddType('expense')} style={{ flex:1, padding:'8px 0', border:'none', background:addType==='expense'?t.surface:'transparent', color:addType==='expense'?t.red:t.sub, borderRadius:9, fontSize:'0.75rem', fontWeight:700, cursor:'pointer', transition:'all 0.2s', boxShadow:addType==='expense'?t.shad2:'none' }}>
-                  ↓ Pengeluaran
-                </button>
-                <button type="button" onClick={()=>setAddType('income')} style={{ flex:1, padding:'8px 0', border:'none', background:addType==='income'?t.surface:'transparent', color:addType==='income'?t.green:t.sub, borderRadius:9, fontSize:'0.75rem', fontWeight:700, cursor:'pointer', transition:'all 0.2s', boxShadow:addType==='income'?t.shad2:'none' }}>
-                  ↑ Pemasukan
-                </button>
+              <div style={{ display:'flex', background:t.surf2, borderRadius:12, padding:4, marginBottom:18, border:`1px solid ${t.border}` }}>
+                {(['expense','income'] as const).map(type => (
+                  <button key={type} type="button" onClick={()=>setAddType(type)}
+                    style={{ flex:1, padding:'9px 0', border:'none', background:addType===type?t.surface:'transparent', color:addType===type?(type==='expense'?t.red:t.green):t.sub, borderRadius:9, fontSize:'0.78rem', fontWeight:700, cursor:'pointer', transition:'all .2s', boxShadow:addType===type?t.shad2:'none' }}>
+                    {type==='expense' ? '↓ Pengeluaran' : '↑ Pemasukan'}
+                  </button>
+                ))}
               </div>
 
               {/* Amount */}
               <div style={{ marginBottom:14 }}>
-                <label style={{ display:'block', fontSize:'0.7rem', fontWeight:700, letterSpacing:'0.05em', color:t.sub, textTransform:'uppercase', marginBottom:6 }}>Jumlah (Rp)</label>
-                <input type="number" required min="0" value={addAmount} onChange={e=>setAddAmount(e.target.value)} placeholder="Misal: 50000" style={{ width:'100%', padding:'12px 14px', borderRadius:10, border:`1px solid ${t.border}`, background:t.surface, color:t.text, fontSize:'1rem', fontWeight:600 }} />
+                <label className="field-label">Jumlah (Rp)</label>
+                <input className="field-input" type="number" required min="0" value={addAmount} onChange={e=>setAddAmount(e.target.value)} placeholder="Misal: 50000" style={{ fontSize:'1.1rem', fontWeight:700 }} />
               </div>
 
               {/* Item Name */}
               <div style={{ marginBottom:14 }}>
-                <label style={{ display:'block', fontSize:'0.7rem', fontWeight:700, letterSpacing:'0.05em', color:t.sub, textTransform:'uppercase', marginBottom:6 }}>Nama Item / Aktivitas</label>
-                <input type="text" required value={addItem} onChange={e=>setAddItem(e.target.value)} placeholder="Misal: Nasi Goreng" style={{ width:'100%', padding:'12px 14px', borderRadius:10, border:`1px solid ${t.border}`, background:t.surface, color:t.text, fontSize:'0.85rem' }} />
+                <label className="field-label">Nama Item / Aktivitas</label>
+                <input className="field-input" type="text" required value={addItem} onChange={e=>setAddItem(e.target.value)} placeholder="Misal: Nasi Goreng" style={{ fontSize:'0.9rem' }} />
               </div>
 
               {/* Category */}
               <div style={{ marginBottom:14 }}>
-                <label style={{ display:'block', fontSize:'0.7rem', fontWeight:700, letterSpacing:'0.05em', color:t.sub, textTransform:'uppercase', marginBottom:6 }}>Kategori</label>
-                <select value={addCategory} onChange={e=>setAddCat(e.target.value)} style={{ width:'100%', padding:'12px 14px', borderRadius:10, border:`1px solid ${t.border}`, background:t.surface, color:t.text, fontSize:'0.85rem', appearance:'none', outline:'none', cursor:'pointer' }}>
-                  {Object.entries(CAT).map(([k, v]) => (
-                    <option key={k} value={k}>{v.emoji} {k[0].toUpperCase()+k.slice(1).replace('_',' ')}</option>
-                  ))}
-                </select>
+                <label className="field-label">Kategori</label>
+                <div style={{ position:'relative' }}>
+                  <select className="field-input" value={addCategory} onChange={e=>setAddCat(e.target.value)} style={{ paddingRight:36, cursor:'pointer', fontSize:'0.88rem', appearance:'none' }}>
+                    {Object.entries(CAT).map(([k, v]) => (
+                      <option key={k} value={k}>{v.emoji} {k[0].toUpperCase()+k.slice(1).replace('_',' ')}</option>
+                    ))}
+                  </select>
+                  <span style={{ position:'absolute', right:12, top:'50%', transform:'translateY(-50%)', fontSize:'0.7rem', color:t.sub, pointerEvents:'none' }}>▾</span>
+                </div>
               </div>
 
               {/* Description */}
               <div style={{ marginBottom:24 }}>
-                <label style={{ display:'block', fontSize:'0.7rem', fontWeight:700, letterSpacing:'0.05em', color:t.sub, textTransform:'uppercase', marginBottom:6 }}>Keterangan Opsional</label>
-                <input type="text" value={addDesc} onChange={e=>setAddDesc(e.target.value)} placeholder="Catatan tambahan..." style={{ width:'100%', padding:'12px 14px', borderRadius:10, border:`1px solid ${t.border}`, background:t.surface, color:t.text, fontSize:'0.85rem' }} />
+                <label className="field-label">Keterangan <span style={{ fontWeight:400, textTransform:'none', opacity:.7 }}>(opsional)</span></label>
+                <input className="field-input" type="text" value={addDesc} onChange={e=>setAddDesc(e.target.value)} placeholder="Catatan tambahan..." style={{ fontSize:'0.88rem' }} />
               </div>
 
-              <button type="submit" disabled={isSubmitting} style={{ width:'100%', padding:'14px', borderRadius:10, background:addType==='expense'?t.red:t.green, color:'#fff', border:'none', fontSize:'0.85rem', fontWeight:700, cursor:isSubmitting?'not-allowed':'pointer', opacity:isSubmitting?0.7:1, display:'flex', alignItems:'center', justifyContent:'center', gap:6, transition:'background 0.2s', boxShadow:`0 6px 16px ${addType==='expense'?t.red+'40':t.green+'40'}` }}>
-                {isSubmitting ? 'Menyimpan...' : 'Simpan Transaksi'}
+              <button type="submit" disabled={isSubmitting}
+                style={{ width:'100%', padding:'14px', borderRadius:12, background:addType==='expense'?`linear-gradient(135deg,${t.red},#FF8080)`:`linear-gradient(135deg,${t.green},#4ADE80)`, color:'#fff', border:'none', fontSize:'0.9rem', fontWeight:700, cursor:isSubmitting?'not-allowed':'pointer', opacity:isSubmitting?.7:1, display:'flex', alignItems:'center', justifyContent:'center', gap:6, boxShadow:`0 8px 24px ${addType==='expense'?t.red:t.green}45`, transition:'all .2s' }}>
+                {isSubmitting ? 'Menyimpan...' : `Simpan ${addType==='expense'?'Pengeluaran':'Pemasukan'}`}
               </button>
             </form>
           </div>
@@ -1794,23 +1904,34 @@ export default function ExpenseTable({ expenses }: { expenses: Expense[] }) {
             </button>
 
             <form onSubmit={handleBudgetManualSubmit} style={{ padding:'28px 24px' }}>
-              <h2 style={{ fontSize:'1.25rem', fontWeight:800, letterSpacing:'-0.5px', marginBottom:4 }}>🎯 Atur Limit Anggaran</h2>
-              <p style={{ fontSize:'0.75rem', color:t.sub, marginBottom:22 }}>Tetapkan batas maksimal pengeluaran bulanan. Masukkan nominal 0 untuk menghapus limit.</p>
+              {/* Modal Header */}
+              <div style={{ display:'flex', alignItems:'center', gap:12, marginBottom:20 }}>
+                <div style={{ width:42, height:42, borderRadius:12, background:`linear-gradient(135deg,${t.accent}30,${t.accent}10)`, display:'flex', alignItems:'center', justifyContent:'center', fontSize:'1.3rem', flexShrink:0 }}>
+                  🎯
+                </div>
+                <div>
+                  <h2 style={{ fontSize:'1.15rem', fontWeight:800, letterSpacing:'-0.5px', lineHeight:1.2 }}>Atur Limit Anggaran</h2>
+                  <p style={{ fontSize:'0.72rem', color:t.sub, marginTop:2 }}>Batas maks. pengeluaran bulanan</p>
+                </div>
+              </div>
 
               {/* Category */}
               <div style={{ marginBottom:14 }}>
-                <label style={{ display:'block', fontSize:'0.7rem', fontWeight:700, letterSpacing:'0.05em', color:t.sub, textTransform:'uppercase', marginBottom:6 }}>Kategori</label>
-                <select value={budgetCategory} onChange={e=>setBudgetCategory(e.target.value)} style={{ width:'100%', padding:'12px 14px', borderRadius:10, border:`1px solid ${t.border}`, background:t.surface, color:t.text, fontSize:'0.85rem', appearance:'none', outline:'none', cursor:'pointer' }}>
-                  {Object.entries(CAT).map(([k, v]) => (
-                    <option key={k} value={k}>{v.emoji} {k[0].toUpperCase()+k.slice(1).replace('_',' ')}</option>
-                  ))}
-                </select>
+                <label className="field-label">Kategori</label>
+                <div style={{ position:'relative' }}>
+                  <select className="field-input" value={budgetCategory} onChange={e=>setBudgetCategory(e.target.value)} style={{ paddingRight:36, cursor:'pointer', fontSize:'0.88rem', appearance:'none' }}>
+                    {Object.entries(CAT).map(([k, v]) => (
+                      <option key={k} value={k}>{v.emoji} {k[0].toUpperCase()+k.slice(1).replace('_',' ')}</option>
+                    ))}
+                  </select>
+                  <span style={{ position:'absolute', right:12, top:'50%', transform:'translateY(-50%)', fontSize:'0.7rem', color:t.sub, pointerEvents:'none' }}>▾</span>
+                </div>
               </div>
 
               {/* Amount */}
               <div style={{ marginBottom:24 }}>
-                <label style={{ display:'block', fontSize:'0.7rem', fontWeight:700, letterSpacing:'0.05em', color:t.sub, textTransform:'uppercase', marginBottom:6 }}>Batas Maksimal (Rp)</label>
-                <input type="number" required min="0" value={budgetAmount} onChange={e=>setBudgetAmount(e.target.value)} placeholder="0 = Hapus Limit" style={{ width:'100%', padding:'12px 14px', borderRadius:10, border:`1px solid ${t.border}`, background:t.surface, color:t.text, fontSize:'1rem', fontWeight:600 }} />
+                <label className="field-label">Batas Maksimal (Rp) <span style={{ fontWeight:400, textTransform:'none', opacity:.7 }}>(0 = hapus limit)</span></label>
+                <input className="field-input" type="number" required min="0" value={budgetAmount} onChange={e=>setBudgetAmount(e.target.value)} placeholder="Misal: 500000" style={{ fontSize:'1.1rem', fontWeight:700 }} />
               </div>
 
               <div style={{ display: 'flex', gap: 10 }}>
@@ -1849,14 +1970,14 @@ export default function ExpenseTable({ expenses }: { expenses: Expense[] }) {
 
               {/* Start Date */}
               <div style={{ marginBottom:14 }}>
-                <label style={{ display:'block', fontSize:'0.7rem', fontWeight:700, letterSpacing:'0.05em', color:t.sub, textTransform:'uppercase', marginBottom:6 }}>Tanggal Mulai</label>
-                <input type="date" value={printStartDate} onChange={e=>setPrintStartDate(e.target.value)} style={{ width:'100%', padding:'12px 14px', borderRadius:10, border:`1px solid ${t.border}`, background:t.surface, color:t.text, fontSize:'0.9rem', fontWeight:600 }} />
+                <label className="field-label">Tanggal Mulai</label>
+                <input className="field-input" type="date" value={printStartDate} onChange={e=>setPrintStartDate(e.target.value)} style={{ fontSize:'0.9rem', fontWeight:600 }} />
               </div>
 
               {/* End Date */}
               <div style={{ marginBottom:20 }}>
-                <label style={{ display:'block', fontSize:'0.7rem', fontWeight:700, letterSpacing:'0.05em', color:t.sub, textTransform:'uppercase', marginBottom:6 }}>Tanggal Selesai</label>
-                <input type="date" value={printEndDate} onChange={e=>setPrintEndDate(e.target.value)} style={{ width:'100%', padding:'12px 14px', borderRadius:10, border:`1px solid ${t.border}`, background:t.surface, color:t.text, fontSize:'0.9rem', fontWeight:600 }} />
+                <label className="field-label">Tanggal Selesai</label>
+                <input className="field-input" type="date" value={printEndDate} onChange={e=>setPrintEndDate(e.target.value)} style={{ fontSize:'0.9rem', fontWeight:600 }} />
               </div>
 
               {/* Live Preview Block */}
@@ -1896,19 +2017,25 @@ export default function ExpenseTable({ expenses }: { expenses: Expense[] }) {
                       }),
                     });
                     const d = await res.json();
-                    if (d.printId) setMonthlyPrintId(d.printId);
+                    if (d.printId) {
+                      pendingMonthlyTitleRef.current = document.title;
+                      pendingMonthlyPrintRef.current = true;
+                      document.title = `Laporan_Bulanan_Keuanganku_${printStartDate}_to_${printEndDate}`;
+                      setMonthlyPrintId(d.printId); // triggers useEffect above
+                    }
                   } catch (e) { console.error(e); }
                   setSubmitting(false);
                   setShowPrintSettings(false);
-                  
-                  const oldTitle = document.title;
-                  document.title = `Laporan_Bulanan_Keuanganku_${printStartDate}_to_${printEndDate}`;
 
-                  setTimeout(() => {
-                    window.print();
-                    document.title = oldTitle; // Restore title after dialog opens
-                    setMonthlyPrintId(null); // Cleanup after print dialog
-                  }, 150);
+                  // Fallback: if no printId returned, print without QR
+                  if (!pendingMonthlyPrintRef.current) {
+                    const oldTitle = document.title;
+                    document.title = `Laporan_Bulanan_Keuanganku_${printStartDate}_to_${printEndDate}`;
+                    requestAnimationFrame(() => requestAnimationFrame(() => {
+                      window.print();
+                      document.title = oldTitle;
+                    }));
+                  }
                 }} 
                 style={{ width:'100%', padding:'14px', borderRadius:10, background:`linear-gradient(135deg,${t.accent},#9B7CF8)`, color:'#fff', border:'none', fontSize:'0.9rem', fontWeight:700, cursor:printFilteredData.length===0?'not-allowed':'pointer', opacity:printFilteredData.length===0?.5:1, display:'flex', alignItems:'center', justifyContent:'center', gap:8, boxShadow:`0 6px 16px ${t.accent}40`, transition:'all 0.2s' }}>
                 <PrIcon /> {printFilteredData.length === 0 ? 'Data Kosong' : isSubmitting ? 'Menyiapkan...' : 'Lanjut Cetak'}
@@ -1982,7 +2109,7 @@ export default function ExpenseTable({ expenses }: { expenses: Expense[] }) {
       {showChat && (
         <div className="sc np chat-window" style={{ position:'fixed', bottom:90, right:24, width:380, maxWidth:'calc(100vw - 48px)', height:550, maxHeight:'calc(100vh - 120px)', borderRadius:20, background: dark?'rgba(20,22,32,0.95)':'rgba(255,255,255,0.95)', border:`1px solid ${t.border}`, boxShadow:'0 24px 48px rgba(0,0,0,0.2)', backdropFilter:'blur(16px)', WebkitBackdropFilter:'blur(16px)', zIndex:999, display:'flex', flexDirection:'column', overflow:'hidden' }}>
           {/* Header */}
-          <div style={{ background:`linear-gradient(135deg,${t.accent},#9B7CF8)`, padding:'16px 20px', color:'#fff', display:'flex', alignItems:'center', justifyContent:'space-between' }}>
+          <div className="chat-header" style={{ background:`linear-gradient(135deg,${t.accent},#9B7CF8)`, padding:'16px 20px', color:'#fff', display:'flex', alignItems:'center', justifyContent:'space-between', flexShrink:0 }}>
             <div style={{ display:'flex', alignItems:'center', gap:10 }}>
               <div style={{ background:'rgba(255,255,255,0.2)', padding:6, borderRadius:12, display:'flex' }}><SparklesIcon /></div>
               <div>
@@ -1994,7 +2121,7 @@ export default function ExpenseTable({ expenses }: { expenses: Expense[] }) {
           </div>
           
           {/* Messages */}
-          <div style={{ flex:1, overflowY:'auto', padding:'20px', display:'flex', flexDirection:'column', gap:16 }}>
+          <div className="chat-messages" style={{ flex:1, overflowY:'auto', padding:'20px', display:'flex', flexDirection:'column', gap:16, WebkitOverflowScrolling:'touch' }}>
             {chatMessages.map((m, i) => (
               <div key={i} style={{ display:'flex', justifyContent:m.role==='user'?'flex-end':'flex-start' }}>
                 <div style={{ maxWidth:'85%', background:m.role==='user'?`${t.accent}`:t.surf2, color:m.role==='user'?'#fff':t.text, padding:'12px 16px', borderRadius:18, borderBottomRightRadius:m.role==='user'?4:18, borderBottomLeftRadius:m.role==='assistant'?4:18, fontSize:'0.85rem', lineHeight:1.5, border:m.role==='assistant'?`1px solid ${t.border}`:'none', wordBreak:'break-word' }}>
@@ -2180,7 +2307,7 @@ export default function ExpenseTable({ expenses }: { expenses: Expense[] }) {
           )}
 
           {/* Input */}
-          <form onSubmit={handleSendChat} style={{ padding:'12px 16px', borderTop: (chatFiles.length > 0 || isRecording) ? 'none' : `1px solid ${t.border}`, background:t.surface, display:'flex', gap:8, alignItems:'center' }}>
+          <form onSubmit={handleSendChat} className="chat-input-area" style={{ padding:'12px 16px', borderTop: (chatFiles.length > 0 || isRecording) ? 'none' : `1px solid ${t.border}`, background:t.surface, display:'flex', gap:8, alignItems:'center', flexShrink:0 }}>
             {/* Hidden file inputs */}
             <input ref={imageInputRef} type="file" accept="image/*" capture="environment" style={{ display:'none' }} onChange={e => { const f = e.target.files?.[0]; if (f) addChatFile(f, 'image'); e.target.value = ''; }} />
             <input ref={pdfInputRef} type="file" accept=".pdf,application/pdf" style={{ display:'none' }} onChange={e => { const f = e.target.files?.[0]; if (f) addChatFile(f, 'pdf'); e.target.value = ''; }} />
@@ -2210,7 +2337,7 @@ export default function ExpenseTable({ expenses }: { expenses: Expense[] }) {
               </button>
             </div>
 
-            <input type="text" value={chatInput} onChange={e=>setChatInput(e.target.value)} placeholder={chatFiles.length > 0 ? 'Tambahkan keterangan...' : 'Tanya sesuatu...'} style={{ flex:1, background:t.surf2, border:`1px solid ${t.border}`, borderRadius:12, padding:'10px 14px', fontSize:'0.82rem', color:t.text }} disabled={isChatLoading || isRecording} />
+            <input type="text" value={chatInput} onChange={e=>setChatInput(e.target.value)} placeholder={chatFiles.length > 0 ? 'Tambahkan keterangan...' : 'Tanya sesuatu...'} style={{ flex:1, background:t.surf2, border:`1px solid ${t.border}`, borderRadius:12, padding:'11px 14px', fontSize:'1rem', color:t.text, minWidth:0 }} disabled={isChatLoading || isRecording} />
             <button type="submit" disabled={isChatLoading || isRecording || (!chatInput.trim() && chatFiles.length === 0)} style={{ background:t.accent, color:'#fff', border:'none', borderRadius:12, width:40, height:40, display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer', opacity:((!chatInput.trim() && chatFiles.length === 0)||isChatLoading||isRecording)?0.4:1, flexShrink:0, transition:'opacity 0.2s' }}>
               <SendIcon />
             </button>
@@ -2219,7 +2346,7 @@ export default function ExpenseTable({ expenses }: { expenses: Expense[] }) {
       )}
 
       {/* Floating Sparkle Button */}
-      <button className="np" onClick={()=>setShowChat(!showChat)} style={{ position:'fixed', bottom:24, right:24, width:50, height:50, borderRadius:'50%', background:`linear-gradient(135deg,${t.accent},#9B7CF8)`, color:'#fff', border:'none', boxShadow:`0 6px 20px ${t.accent}66`, display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer', zIndex:998, transition:'transform 0.2s' }}>
+      <button className="np chat-fab" onClick={()=>setShowChat(!showChat)} style={{ position:'fixed', bottom:24, right:24, width:56, height:56, borderRadius:'50%', background:`linear-gradient(135deg,${t.accent},#9B7CF8)`, color:'#fff', border:'none', boxShadow:`0 6px 20px ${t.accent}66`, display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer', zIndex:998, transition:'transform 0.2s' }}>
         {showChat ? <XIcon /> : <SparklesIcon />}
       </button>
 
