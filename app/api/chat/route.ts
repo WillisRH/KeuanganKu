@@ -115,7 +115,8 @@ PENTING TENTANG FILE/MEDIA YANG DIUNGGAH:
 - Jika pengguna mengirim FOTO STRUK/NOTA: Analisa gambar tersebut, identifikasi item-item belanjaan beserta harganya, lalu gunakan tool "addTransactions" untuk mencatat semua item secara otomatis. Jika ada item yang tidak jelas, tanyakan ke pengguna.
 - Jika pengguna mengirim REKAMAN AUDIO: Dengarkan dan pahami isi audio tersebut, lalu proses sesuai instruksinya (misalnya mencatat transaksi yang disebutkan).
 - Jika pengguna mengirim FILE PDF: Baca dan analisa isi dokumen PDF tersebut. Bisa berupa laporan keuangan, invoice, atau nota yang perlu dicatat.
-- Selalu konfirmasi kembali hasil analisa file ke pengguna sebelum menyimpan data.`;
+- Selalu konfirmasi kembali hasil analisa file ke pengguna sebelum menyimpan data.
+- Jika pengguna ingin membagi tagihan (split bill) dengan banyak teman dengan rincian per orang (terutama jika pesanan tiap orang berbeda), sarankan mereka menggunakan fitur **Split Bill Calculator** di menu navigasi atau langsung ke path \`/c\`. Kamu bisa menjelaskan bahwa fitur di \`/c\` lebih lengkap untuk menangani banyak orang, PPN, dan service charge secara otomatis.`;
 
     // Flatten user messages into the expected gemini format
     const formattedMessages = messages.map((msg: any, idx: number) => {

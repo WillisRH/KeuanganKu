@@ -13,6 +13,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
+  metadataBase: new URL('https://expense-tracker-tau-bay-22.vercel.app'),
   title: "Keuanganku | Smart AI Expense Tracker",
   description: "Kelola keuanganmu dengan cerdas menggunakan asisten AI Gemini.",
 };

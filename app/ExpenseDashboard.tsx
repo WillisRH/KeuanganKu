@@ -6,6 +6,7 @@ import { Expense, Budget } from '../node_modules/.prisma/client-custom';
 import QRCode from 'react-qr-code';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, BarChart, Bar, XAxis, YAxis, CartesianGrid } from 'recharts';
 import ReactMarkdown from 'react-markdown';
+import Link from 'next/link';
 
 // ─── Theme ────────────────────────────────────────────────────────────────────
 const makeTheme = (dark: boolean) => ({
@@ -1107,6 +1108,11 @@ export default function ExpenseTable({ expenses }: { expenses: Expense[] }) {
           </div>
 
           <div className="ha" style={{ display:'flex', gap:8, alignItems:'center' }}>
+            <Link href="/c" style={{ textDecoration: 'none' }}>
+              <button className="ibtn" style={{ background: t.accent + '14', color: t.accent, borderColor: t.accent + '33' }}>
+                <StarIcon /> <span>Split Bill</span>
+              </button>
+            </Link>
             <button className="ibtn" onClick={exportCSV}><DlIcon /><span>CSV</span></button>
             <button className="ibtn" onClick={()=>setShowPrintSettings(true)}><PrIcon /><span>Print</span></button>
             <button onClick={()=>setDark(!dark)} style={{ width:34, height:34, borderRadius:10, border:`1px solid ${t.border}`, background:t.surface, color:t.sub, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center' }}>

@@ -53,3 +53,6 @@ next-env.d.ts
 # whatsapp bot
 .wwebjs_auth
 .wwebjs_cache
+
+.vercel
+.env*.local

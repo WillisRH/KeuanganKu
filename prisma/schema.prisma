@@ -45,3 +45,9 @@ model Budget {
   @@unique([category, month, year])
 }
 
+model SharedBill {
+  id        String   @id @default(uuid())
+  data      String   @db.Text // JSON string: { items, subtotal, tax, service, total, members }
+  createdAt DateTime @default(now())
+}
+
