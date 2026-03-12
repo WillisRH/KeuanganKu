@@ -45,8 +45,38 @@ model Budget {
 }
 
 model SharedBill {
-  id        String   @id @default(uuid())
-  data      String   @db.Text // JSON string: { items, subtotal, tax, service, total, members }
-  createdAt DateTime @default(now())
+  id          String   @id @default(uuid())
+  subtotal    Float
+  tax         Float
+  service     Float
+  total       Float
+  taxRate     Float    @default(0)
+  serviceRate Float    @default(0)
+  createdAt   DateTime @default(now())
+  
+  items       SharedBillItem[]
+  members     SharedBillMember[]
+}
+
+model SharedBillItem {
+  id           String     @id @default(uuid())
+  billId       String
+  bill         SharedBill @relation(fields: [billId], references: [id], onDelete: Cascade)
+  name         String
+  price        Float
+  qty          Int
+  assignedTo   String[]   // Array of member IDs (mapped from frontend)
+}
+
+model SharedBillMember {
+  id           String     @id @default(uuid())
+  billId       String
+  bill         SharedBill @relation(fields: [billId], references: [id], onDelete: Cascade)
+  memberId     String     // Original ID from frontend
+  name         String
+  subtotal     Float
+  tax          Float
+  service      Float
+  total        Float
 }
 

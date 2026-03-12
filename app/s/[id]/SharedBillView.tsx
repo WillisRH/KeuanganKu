@@ -388,9 +388,11 @@ export default function SharedBillView({ data, shareUrl }: Props) {
                     <span>{fmt(data.subtotal)}</span>
                   </div>
                   {(data.tax > 0 || data.service > 0) && (
-                    <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 700, fontSize: '0.9rem' }}>
-                      <span style={{ color: t.sub }}>Pajak & Service</span>
-                      <span style={{ color: t.green }}>{fmt(data.tax + data.service)}</span>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 700, fontSize: '0.9rem' }}>
+                        <span style={{ color: t.sub }}>Pajak & Service {((data.taxRate || 0) + (data.serviceRate || 0)) > 0 && `(${(data.taxRate || 0) + (data.serviceRate || 0)}%)`}</span>
+                        <span style={{ color: t.green }}>{fmt(data.tax + data.service)}</span>
+                      </div>
                     </div>
                   )}
                   <div style={{ marginTop: 16, paddingTop: 16, borderTop: `1px solid ${t.border}`, fontSize: '0.85rem', color: t.sub, fontWeight: 600 }}>
@@ -491,7 +493,7 @@ export default function SharedBillView({ data, shareUrl }: Props) {
                 ))}
                 {(selectedMember.tax + selectedMember.service > 0) && (
                   <div style={{ marginTop: 8, paddingTop: 12, borderTop: `1px dashed ${t.border}`, display: 'flex', justifyContent: 'space-between', fontSize: '0.9rem', color: t.sub, fontWeight: 700 }}>
-                    <span>Pajak & Service</span>
+                    <span>Pajak & Service {((data.taxRate || 0) + (data.serviceRate || 0)) > 0 && `(${(data.taxRate || 0) + (data.serviceRate || 0)}%)`}</span>
                     <span>{fmt(selectedMember.tax + selectedMember.service)}</span>
                   </div>
                 )}

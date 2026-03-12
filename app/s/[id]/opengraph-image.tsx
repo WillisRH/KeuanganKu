@@ -3,7 +3,7 @@ import prisma from '../../../lib/prisma';
 
 export const runtime = 'nodejs';
 export const alt = 'Digital Receipt - KeuanganKu';
-export const size = { width: 1200, height: 630 }; // Landscape container for wide compatibility
+export const size = { width: 1200, height: 630 };
 export const contentType = 'image/png';
 
 const fmt = (n: number) => 'Rp ' + Math.floor(n).toLocaleString('id-ID');
@@ -14,10 +14,28 @@ export default async function Image({ params }: { params: Promise<{ id: string }
 
   let billData: any = null;
   try {
-    const bill = await prisma.sharedBill.findUnique({ where: { id } });
+    const bill = await prisma.sharedBill.findUnique({ 
+      where: { id },
+      include: {
+        items: true,
+        members: true,
+      }
+    });
+
     if (bill) {
-      billData = JSON.parse(bill.data);
-      billData.createdAt = bill.createdAt;
+      // Direct mapping from relational entities
+      billData = {
+        id: bill.id,
+        subtotal: bill.subtotal,
+        tax: bill.tax,
+        service: bill.service,
+        total: bill.total,
+        taxRate: bill.taxRate,
+        serviceRate: bill.serviceRate,
+        createdAt: bill.createdAt,
+        items: bill.items,
+        members: bill.members,
+      };
     }
   } catch (e) {
     console.error("OG Image Error:", e);
@@ -41,7 +59,7 @@ export default async function Image({ params }: { params: Promise<{ id: string }
   
   const getAssigneeNames = (assignedToIds: string[]) => {
     return assignedToIds
-      .map(id => members.find((m: any) => m.id === id)?.name)
+      .map(id => members.find((m: any) => m.memberId === id)?.name)
       .filter(Boolean)
       .join(', ');
   };
@@ -72,7 +90,7 @@ export default async function Image({ params }: { params: Promise<{ id: string }
           </div>
         </div>
 
-        {/* The Receipt - Center (Portrait aspect inside Landscape) */}
+        {/* The Receipt - Center */}
         <div tw="flex flex-col w-[420px] h-[580px] bg-white rounded-[40px] shadow-2xl overflow-hidden relative mx-4 border-[12px] border-white/10">
           {/* Header */}
           <div tw="flex flex-col items-center pt-8 pb-4 px-8">

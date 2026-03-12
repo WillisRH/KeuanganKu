@@ -9,6 +9,9 @@ async function main() {
 
   console.log('🗑️ Deleting all Budgets...');
   await prisma.budget.deleteMany();
+
+  console.log('🗑️ Deleting all SharedBills...');
+  await prisma.sharedBill.deleteMany();
   
   console.log('✅ Database cleared successfully!');
 }

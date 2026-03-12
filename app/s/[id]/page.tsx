@@ -7,10 +7,50 @@ import Link from 'next/link';
 const fmt = (n: number) => 'Rp\u00A0' + Math.floor(n).toLocaleString('id-ID');
 
 async function getBillData(id: string) {
-  const bill = await prisma.sharedBill.findUnique({ where: { id } });
+  const bill = await prisma.sharedBill.findUnique({ 
+    where: { id },
+    include: {
+      items: true,
+      members: true,
+    }
+  });
+
   if (!bill) return null;
-  const data = JSON.parse(bill.data);
-  return { ...data, _createdAt: bill.createdAt.toISOString() };
+
+  // Transform relational data back into the format expected by the frontend
+  // This maps the DB structure to the original JSON-like interface
+  return {
+    subtotal: bill.subtotal,
+    tax: bill.tax,
+    service: bill.service,
+    total: bill.total,
+    taxRate: bill.taxRate,
+    serviceRate: bill.serviceRate,
+    _createdAt: bill.createdAt.toISOString(),
+    items: bill.items.map(item => ({
+      id: item.id,
+      name: item.name,
+      price: item.price,
+      qty: item.qty,
+      assignedTo: item.assignedTo,
+    })),
+    members: bill.members.map(m => ({
+      id: m.memberId, // Map back to original frontend ID
+      name: m.name,
+      subtotal: m.subtotal,
+      tax: m.tax,
+      service: m.service,
+      total: m.total,
+      // The frontend component expects 'items' rincian inside member too
+      // We calculate this on the fly to avoid even more complex relations
+      items: bill.items
+        .filter(item => item.assignedTo.includes(m.memberId))
+        .map(item => ({
+          name: item.name,
+          share: (item.price * item.qty) / (item.assignedTo.length || 1)
+        }))
+    }))
+  };
 }
 
 // ─── Metadata ──────────────────────────────────────────────────────────────────
@@ -35,7 +75,7 @@ export async function generateMetadata(
       siteName: 'KeuanganKu',
       images: [
         {
-          url: `/s/${id}/opengraph-image?v=7`,
+          url: `/s/${id}/opengraph-image?v=8`, // New version for structural change
           width: 1200,
           height: 630,
           alt: 'KeuanganKu Receipt',
@@ -46,7 +86,7 @@ export async function generateMetadata(
       card: 'summary_large_image',
       title: 'Split Bill Receipt — KeuanganKu',
       description: summary,
-      images: [`/s/${id}/opengraph-image?v=7`],
+      images: [`/s/${id}/opengraph-image?v=8`],
     },
   };
 }
