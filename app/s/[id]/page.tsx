@@ -33,11 +33,20 @@ export async function generateMetadata(
       description: summary,
       type: 'website',
       siteName: 'KeuanganKu',
+      images: [
+        {
+          url: `/s/${id}/opengraph-image?v=7`,
+          width: 1200,
+          height: 630,
+          alt: 'KeuanganKu Receipt',
+        },
+      ],
     },
     twitter: {
       card: 'summary_large_image',
       title: 'Split Bill Receipt — KeuanganKu',
       description: summary,
+      images: [`/s/${id}/opengraph-image?v=7`],
     },
   };
 }
