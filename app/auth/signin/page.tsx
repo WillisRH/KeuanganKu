@@ -1,13 +1,13 @@
 'use client';
 
 import { signIn } from 'next-auth/react';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 
 import { theme } from '../../../lib/theme';
 const t = theme.light;
 
-export default function SignInPage() {
+function SignInContent() {
   const searchParams = useSearchParams();
   const error = searchParams.get('error');
   const [mounted, setMounted] = useState(false);
@@ -166,5 +166,13 @@ export default function SignInPage() {
         © 2024 Keuanganku. Semua data terenkripsi aman.
       </div>
     </div>
+  );
+}
+
+export default function SignInPage() {
+  return (
+    <Suspense fallback={null}>
+      <SignInContent />
+    </Suspense>
   );
 }
