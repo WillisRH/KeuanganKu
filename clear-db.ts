@@ -12,6 +12,18 @@ async function main() {
 
   console.log('🗑️ Deleting all SharedBills...');
   await prisma.sharedBill.deleteMany();
+
+  console.log('🗑️ Deleting all Users...');
+  await prisma.user.deleteMany();
+
+  console.log('🗑️ Deleting all Accounts...');
+  await prisma.account.deleteMany();
+
+  console.log('🗑️ Deleting all Sessions...');
+  await prisma.session.deleteMany();
+
+  console.log('🗑️ Deleting all VerificationTokens...');
+  await prisma.verificationToken.deleteMany();
   
   console.log('✅ Database cleared successfully!');
 }

@@ -1,44 +1,13 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { useSession } from 'next-auth/react';
 import Link from 'next/link';
+import { addTransaction } from '../../actions';
 import QRCode from 'react-qr-code';
 
-// ─── Theme Configuration ──────────────────────────────────────────────────────
-const theme = {
-  dark: {
-    bg:      '#0C0E16',
-    surface: '#141620',
-    surf2:   '#1C1F2E',
-    surf3:   '#22263A',
-    border:  '#252840',
-    text:    '#EDF0F7',
-    sub:     '#5B6380',
-    muted:   '#3D4260',
-    accent:  '#5B6CF8',
-    green:   '#22C55E',
-    red:     '#FF6B6B',
-    yellow:  '#F59E0B',
-    glow:    'rgba(91,108,248,0.15)',
-    shadow:  '0 20px 50px rgba(0,0,0,0.5)',
-  },
-  light: {
-    bg:      '#F3F4F6',
-    surface: '#FFFFFF',
-    surf2:   '#F9FAFB',
-    surf3:   '#E5E7EB',
-    border:  '#E5E7EB',
-    text:    '#111827',
-    sub:     '#6B7280',
-    muted:   '#9CA3AF',
-    accent:  '#5B6CF8',
-    green:   '#10B981',
-    red:     '#EF4444',
-    yellow:  '#F59E0B',
-    glow:    'rgba(91,108,248,0.08)',
-    shadow:  '0 10px 30px rgba(0,0,0,0.05)',
-  }
-};
+import { theme } from '../../../lib/theme';
+const t_config = theme;
 
 const avatarColors = [
   '#5B6CF8','#EC4899','#F59E0B','#10B981','#8B5CF6',
@@ -100,12 +69,14 @@ const DishIcon = () => (
 // ─── Interfaces ──────────────────────────────────────────────────────────────
 interface MemberBreakdown {
   id: string;
+  dbId: string;
   name: string;
   items: { name: string; share: number }[];
   subtotal: number;
   tax: number;
   service: number;
   total: number;
+  paidAmount: number;
 }
 
 interface BillItem {
@@ -125,6 +96,7 @@ interface BillData {
   members: MemberBreakdown[];
   taxRate: number;
   serviceRate: number;
+  userId?: string | null;
   _createdAt?: string;
 }
 
@@ -134,22 +106,88 @@ interface Props {
 }
 
 export default function SharedBillView({ data, shareUrl }: Props) {
+  const { data: session } = useSession();
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [copiedLink, setCopiedLink] = useState(false);
   const [showQR, setShowQR] = useState(false);
-  const [isDark, setIsDark] = useState(true);
+  const [isDark, setIsDark] = useState(false); // Default to light mode (false)
   const [selectedMember, setSelectedMember] = useState<MemberBreakdown | null>(null);
+  const [updatingPayment, setUpdatingPayment] = useState<string | null>(null);
+  const [showInstallmentModal, setShowInstallmentModal] = useState(false);
+  const [installmentAmount, setInstallmentAmount] = useState('');
+  const isOwner = session?.user?.id === data.userId;
+  const [localMembers, setLocalMembers] = useState<MemberBreakdown[]>(data.members);
+  const [recordingExpense, setRecordingExpense] = useState<string | null>(null);
+  const [recordedMembers, setRecordedMembers] = useState<Set<string>>(new Set());
+  const [toast, setToast] = useState<{msg:string, type:'success'|'error'}|null>(null);
+  const [showExpenseChecklist, setShowExpenseChecklist] = useState(false);
+  const [checklistMember, setChecklistMember] = useState<MemberBreakdown | null>(null);
+  const [checkedItems, setCheckedItems] = useState<Set<number>>(new Set());
+
+  const showToast = (msg: string, type: 'success'|'error' = 'success') => {
+    setToast({ msg, type });
+    setTimeout(() => setToast(null), 3500);
+  };
+
+  const openExpenseChecklist = (member: MemberBreakdown) => {
+    if (!session?.user) {
+      showToast('Silakan login terlebih dahulu', 'error');
+      return;
+    }
+    if (member.items.length <= 1) {
+      // Only 1 item, record directly
+      recordAsExpense(member, member.items);
+    } else {
+      setChecklistMember(member);
+      setCheckedItems(new Set(member.items.map((_, i) => i))); // All checked by default
+      setShowExpenseChecklist(true);
+    }
+  };
+
+  const recordAsExpense = async (member: MemberBreakdown, selectedItems: { name: string; share: number }[]) => {
+    if (!session?.user || selectedItems.length === 0) return;
+    setRecordingExpense(member.id);
+    try {
+      const totalAmount = selectedItems.reduce((sum, it) => sum + it.share, 0);
+      // Add proportional tax/service
+      const proportion = member.subtotal > 0 ? totalAmount / member.subtotal : 0;
+      const taxService = (member.tax + member.service) * proportion;
+      const finalAmount = Math.round(totalAmount + taxService);
+      const itemNames = selectedItems.map(it => it.name).join(', ');
+      
+      await addTransaction({
+        item: `Split Bill - ${member.name}`,
+        amount: finalAmount,
+        category: 'split-bill',
+        type: 'expense',
+        description: `Bagian ${member.name}: ${itemNames}`,
+      });
+      setRecordedMembers(prev => new Set(prev).add(member.id));
+      setShowExpenseChecklist(false);
+      showToast(`💸 ${selectedItems.length} item (${fmt(finalAmount)}) berhasil dicatat!`, 'success');
+    } catch (err) {
+      console.error(err);
+      showToast('Gagal mencatat pengeluaran', 'error');
+    } finally {
+      setRecordingExpense(null);
+    }
+  };
+
+  useEffect(() => {
+    setLocalMembers(data.members);
+  }, [data.members]);
 
   // System Theme Detection
   useEffect(() => {
+    const isL = localStorage.getItem('theme') === 'light' || !localStorage.getItem('theme');
+    setIsDark(!isL);
     const media = window.matchMedia('(prefers-color-scheme: dark)');
-    setIsDark(media.matches);
     const handler = (e: MediaQueryListEvent) => setIsDark(e.matches);
     media.addEventListener('change', handler);
     return () => media.removeEventListener('change', handler);
   }, []);
 
-  const t = isDark ? theme.dark : theme.light;
+  const t = isDark ? t_config.dark : t_config.light;
 
   const createdDate = data._createdAt
     ? new Date(data._createdAt).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' })
@@ -169,12 +207,33 @@ export default function SharedBillView({ data, shareUrl }: Props) {
   };
 
   const shareWA = () => {
-    const lines = data.members
+    const lines = localMembers
       .filter(m => m.total > 0)
-      .map(m => `• ${m.name}: *${fmt(m.total)}*`)
+      .map(m => `• ${m.name}: *${fmt(m.total)}* ${m.paidAmount >= m.total ? '✅' : (m.paidAmount > 0 && isOwner) ? '🕒' : ''}`)
       .join('\n');
     const text = `💰 *Split Bill - KeuanganKu*\n\n${lines}\n\n📊 *Total: ${fmt(data.total)}*\n\nLihat rincian lengkap:\n${shareUrl}`;
     window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank');
+  };
+
+  const updateMemberPayment = async (memberDbId: string, amount: number) => {
+    setUpdatingPayment(memberDbId);
+    try {
+      const res = await fetch('/api/shared-bill/member', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ memberId: memberDbId, paidAmount: amount })
+      });
+      if (res.ok) {
+        setLocalMembers(prev => prev.map(m => m.dbId === memberDbId ? { ...m, paidAmount: amount } : m));
+        if (selectedMember?.dbId === memberDbId) {
+          setSelectedMember(prev => prev ? { ...prev, paidAmount: amount } : null);
+        }
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setUpdatingPayment(null);
+    }
   };
 
   return (
@@ -421,16 +480,25 @@ export default function SharedBillView({ data, shareUrl }: Props) {
                 </div>
 
                 <div className="person-grid">
-                  {data.members.map((m, idx) => {
+                  {localMembers.map((m, idx) => {
                     const color = avatarColors[idx % avatarColors.length];
+                    const isPaid = m.paidAmount >= m.total;
+                    const isPartial = m.paidAmount > 0 && m.paidAmount < m.total;
+                    const showPartial = isPartial && isOwner; // Only owner sees "Nyicil"
                     return (
                       <div key={m.id || idx} className="person-card" onClick={() => setSelectedMember(m)}>
+                        {isPaid && (
+                          <div style={{ position: 'absolute', top: 12, right: 12, background: t.green, color: '#fff', borderRadius: '50%', width: 20, height: 20, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10 }}>
+                            <CheckIcon />
+                          </div>
+                        )}
                         <div className="avatar" style={{ background: color }}>{m.name.charAt(0).toUpperCase()}</div>
                         <div>
                           <p style={{ fontWeight: 900, fontSize: '1.1rem', marginBottom: 2 }}>{m.name}</p>
-                          <p style={{ fontWeight: 900, fontSize: '1.1rem', color: t.accent }}>{fmt(m.total)}</p>
+                          <p style={{ fontWeight: 900, fontSize: '1.1rem', color: isPaid ? t.green : t.accent }}>{fmt(m.total)}</p>
+                          {showPartial && <p style={{ fontSize: '0.7rem', fontWeight: 700, color: t.yellow }}>Nyicil: {fmt(m.paidAmount)}</p>}
                         </div>
-                        <div role="button" style={{ background: t.surf2, padding: '4px 12px', borderRadius: 10, fontSize: '0.75rem', fontWeight: 800, color: t.sub }}>Klik Detail ➔</div>
+                        <div role="button" style={{ background: t.surf2, padding: '4px 12px', borderRadius: 10, fontSize: '0.75rem', fontWeight: 800, color: t.sub }}>Detail & Bayar ➔</div>
                       </div>
                     );
                   })}
@@ -499,10 +567,109 @@ export default function SharedBillView({ data, shareUrl }: Props) {
                 )}
                 <div style={{ marginTop: 12, paddingTop: 16, borderTop: `1.5px solid ${t.border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <span style={{ fontSize: '0.85rem', fontWeight: 900, color: t.sub }}>TOTAL TAGIHAN</span>
-                  <span style={{ fontSize: '1.25rem', fontWeight: 900, color: t.accent }}>{fmt(selectedMember.total)}</span>
+                  <div style={{ textAlign: 'right' }}>
+                    <span style={{ fontSize: '1.25rem', fontWeight: 900, color: t.accent }}>{fmt(selectedMember.total)}</span>
+                    {selectedMember.paidAmount > 0 && selectedMember.paidAmount < selectedMember.total && isOwner && (
+                      <p style={{ fontSize: '0.75rem', fontWeight: 700, color: t.yellow }}>Telah dibayar: {fmt(selectedMember.paidAmount)}</p>
+                    )}
+                  </div>
                 </div>
               </div>
             </div>
+
+            {/* Payment Controls - Only for Owner */}
+            {isOwner ? (
+              <div style={{ marginBottom: 24 }}>
+                <p style={{ fontSize: '0.75rem', fontWeight: 800, color: t.sub, textTransform: 'uppercase', marginBottom: 12, textAlign: 'center' }}>Konfirmasi Pembayaran (Pemilik)</p>
+                <div style={{ display: 'flex', gap: 10 }}>
+                  {selectedMember.paidAmount < selectedMember.total ? (
+                    <>
+                      <button 
+                        disabled={updatingPayment === selectedMember.dbId}
+                        onClick={() => updateMemberPayment(selectedMember.dbId, selectedMember.total)}
+                        className="btn-primary" 
+                        style={{ flex: 1, fontSize: '0.85rem', padding: '12px' }}
+                      >
+                        {updatingPayment === selectedMember.dbId ? 'Loading...' : 'Lunas ✅'}
+                      </button>
+                      <button 
+                        disabled={updatingPayment === selectedMember.dbId}
+                        onClick={() => {
+                          setInstallmentAmount((selectedMember.paidAmount || 0).toString());
+                          setShowInstallmentModal(true);
+                        }}
+                        className="btn-secondary" 
+                        style={{ flex: 1, fontSize: '0.85rem', padding: '12px' }}
+                      >
+                        Nyicil 🕒
+                      </button>
+                    </>
+                  ) : (
+                    <button 
+                      disabled={updatingPayment === selectedMember.dbId}
+                      onClick={() => updateMemberPayment(selectedMember.dbId, 0)}
+                      className="btn-secondary" 
+                      style={{ flex: 1, fontSize: '0.85rem', padding: '12px', color: t.red, borderColor: t.red + '30' }}
+                    >
+                      Reset Pembayaran ↺
+                    </button>
+                  )}
+                </div>
+              </div>
+            ) : (
+              <div style={{ marginBottom: 24, padding: 12, borderRadius: 12, background: t.surf2, textAlign: 'center' }}>
+                <p style={{ fontSize: '0.8rem', fontWeight: 700, color: t.sub }}> Status: 
+                  {selectedMember.paidAmount >= selectedMember.total ? 
+                    <span style={{ color: t.green }}> Lunas ✅</span> : 
+                    (selectedMember.paidAmount > 0 && isOwner) ? 
+                    <span style={{ color: t.yellow }}> Nyicil 🕒</span> : 
+                    <span style={{ color: t.muted }}> Belum Bayar</span>
+                  }
+                </p>
+                {selectedMember.paidAmount > 0 && selectedMember.paidAmount < selectedMember.total && isOwner && (
+                   <p style={{ fontSize: '0.7rem', color: t.muted, marginTop: 4 }}>Sudah dikonfirmasi pemilik: {fmt(selectedMember.paidAmount)}</p>
+                )}
+              </div>
+            )}
+
+            {/* Record as Expense Button */}
+            {session?.user && (
+              <div style={{ marginBottom: 16 }}>
+                <button
+                  disabled={recordingExpense === selectedMember.id || recordedMembers.has(selectedMember.id)}
+                  onClick={() => openExpenseChecklist(selectedMember)}
+                  style={{
+                    width: '100%',
+                    padding: '14px',
+                    borderRadius: 16,
+                    background: recordedMembers.has(selectedMember.id)
+                      ? t.green
+                      : `linear-gradient(135deg, #F59E0B, #EF4444)`,
+                    color: '#fff',
+                    border: 'none',
+                    fontWeight: 800,
+                    fontSize: '0.9rem',
+                    cursor: recordedMembers.has(selectedMember.id) ? 'default' : 'pointer',
+                    opacity: recordingExpense === selectedMember.id ? 0.6 : 1,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: 8,
+                    fontFamily: 'inherit',
+                    boxShadow: recordedMembers.has(selectedMember.id)
+                      ? `0 4px 12px ${t.green}40`
+                      : '0 4px 16px rgba(245,158,11,0.3)',
+                    transition: 'all 0.2s',
+                  }}
+                >
+                  {recordedMembers.has(selectedMember.id)
+                    ? '✅ Sudah Dicatat ke Pengeluaran'
+                    : recordingExpense === selectedMember.id
+                    ? 'Mencatat...'
+                    : '💸 Catat ke Pengeluaran Saya'}
+                </button>
+              </div>
+            )}
 
             <div style={{ display: 'flex', gap: 12 }}>
                <button 
@@ -518,6 +685,43 @@ export default function SharedBillView({ data, shareUrl }: Props) {
         </div>
       )}
 
+      {/* ── INSTALLMENT MODAL ── */}
+      {showInstallmentModal && selectedMember && (
+        <div className="modal-backdrop" style={{ zIndex: 300 }} onClick={() => setShowInstallmentModal(false)}>
+          <div className="modal-box" style={{ maxWidth: 400 }} onClick={e => e.stopPropagation()}>
+            <div style={{ textAlign: 'center', marginBottom: 24 }}>
+              <div style={{ width: 64, height: 64, background: t.accent + '15', color: t.accent, borderRadius: 24, display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px', fontSize: '1.5rem' }}>
+                🕒
+              </div>
+              <h3 style={{ fontSize: '1.4rem', fontWeight: 900 }}>Nominal Cicilan</h3>
+              <p style={{ color: t.sub, fontSize: '0.9rem', fontWeight: 600 }}>Masukkan nominal yang sudah dibayar oleh {selectedMember.name}</p>
+            </div>
+
+            <div style={{ position: 'relative', marginBottom: 24 }}>
+              <span style={{ position: 'absolute', left: 16, top: '50%', transform: 'translateY(-50%)', fontWeight: 900, color: t.accent }}>Rp</span>
+              <input 
+                autoFocus
+                type="number" 
+                value={installmentAmount}
+                onChange={e => setInstallmentAmount(e.target.value)}
+                placeholder="0"
+                style={{ width: '100%', background: t.surf2, border: `2px solid ${t.border}`, borderRadius: 16, padding: '16px 16px 16px 44px', fontSize: '1.2rem', fontWeight: 800, color: t.text, fontFamily: 'inherit', outline: 'none' }}
+                onFocus={e => e.target.parentElement!.style.borderColor = t.accent}
+                onBlur={e => e.target.parentElement!.style.borderColor = t.border}
+              />
+            </div>
+
+            <div style={{ display: 'flex', gap: 12 }}>
+              <button className="btn-secondary" style={{ flex: 1 }} onClick={() => setShowInstallmentModal(false)}>Batal</button>
+              <button className="btn-primary" style={{ flex: 1 }} onClick={() => {
+                updateMemberPayment(selectedMember.dbId, Number(installmentAmount));
+                setShowInstallmentModal(false);
+              }}>Simpan</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ── QR MODAL ── */}
       {showQR && (
         <div className="modal-backdrop" onClick={() => setShowQR(false)}>
@@ -528,6 +732,114 @@ export default function SharedBillView({ data, shareUrl }: Props) {
             </div>
             <button className="btn-secondary" style={{ width: '100%' }} onClick={() => setShowQR(false)}>Tutup</button>
           </div>
+        </div>
+      )}
+
+      {/* ── ITEM CHECKLIST MODAL ── */}
+      {showExpenseChecklist && checklistMember && (
+        <div className="modal-backdrop" style={{ zIndex: 400 }} onClick={() => setShowExpenseChecklist(false)}>
+          <div className="modal-box" style={{ maxWidth: 420 }} onClick={e => e.stopPropagation()}>
+            <div style={{ textAlign: 'center', marginBottom: 24 }}>
+              <div style={{ width: 64, height: 64, background: '#F59E0B15', color: '#F59E0B', borderRadius: 24, display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px', fontSize: '1.5rem' }}>
+                📋
+              </div>
+              <h3 style={{ fontSize: '1.4rem', fontWeight: 900 }}>Pilih Item</h3>
+              <p style={{ color: t.sub, fontSize: '0.9rem', fontWeight: 600 }}>Pilih item {checklistMember.name} yang mau dicatat</p>
+            </div>
+
+            <div style={{ maxHeight: '300px', overflowY: 'auto', marginBottom: 24, paddingRight: 4 }}>
+              {checklistMember.items.map((item, idx) => {
+                const isChecked = checkedItems.has(idx);
+                return (
+                  <div 
+                    key={idx} 
+                    onClick={() => {
+                      const next = new Set(checkedItems);
+                      if (next.has(idx)) next.delete(idx);
+                      else next.add(idx);
+                      setCheckedItems(next);
+                    }}
+                    style={{ 
+                      display: 'flex', 
+                      alignItems: 'center', 
+                      gap: 12, 
+                      padding: '12px 16px', 
+                      background: isChecked ? t.accent + '10' : t.surf2,
+                      border: `1.5px solid ${isChecked ? t.accent : t.border}`,
+                      borderRadius: 16,
+                      marginBottom: 10,
+                      cursor: 'pointer',
+                      transition: 'all 0.2s'
+                    }}
+                  >
+                    <div style={{ 
+                      width: 20, 
+                      height: 20, 
+                      borderRadius: 6, 
+                      border: `2px solid ${isChecked ? t.accent : t.sub}`,
+                      background: isChecked ? t.accent : 'transparent',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      color: '#fff',
+                      fontSize: 12
+                    }}>
+                      {isChecked && <CheckIcon />}
+                    </div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <p style={{ fontWeight: 700, fontSize: '0.9rem', marginBottom: 2, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{item.name}</p>
+                      <p style={{ fontSize: '0.75rem', fontWeight: 600, color: t.sub }}>{fmt(item.share)}</p>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            <div style={{ borderTop: `1.5px dashed ${t.border}`, paddingTop: 20, marginBottom: 24, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ fontSize: '0.85rem', fontWeight: 900, color: t.sub }}>ESTIMASI TOTAL</span>
+              <div style={{ textAlign: 'right' }}>
+                <span style={{ fontSize: '1.25rem', fontWeight: 900, color: t.accent }}>
+                  {fmt(Math.round(Array.from(checkedItems).reduce((sum, idx) => sum + checklistMember.items[idx].share, 0) * (checklistMember.subtotal > 0 ? 1 + (checklistMember.tax + checklistMember.service) / checklistMember.subtotal : 1)))}
+                </span>
+                <p style={{ fontSize: '0.65rem', fontWeight: 700, color: t.muted }}>*Termasuk Pajak & Service</p>
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', gap: 12 }}>
+              <button className="btn-secondary" style={{ flex: 1 }} onClick={() => setShowExpenseChecklist(false)}>Batal</button>
+              <button 
+                disabled={checkedItems.size === 0 || recordingExpense === checklistMember.id}
+                className="btn-primary" 
+                style={{ flex: 1.5 }} 
+                onClick={() => recordAsExpense(checklistMember, checklistMember.items.filter((_, i) => checkedItems.has(i)))}
+              >
+                {recordingExpense === checklistMember.id ? 'Mencatat...' : 'Konfirmasi 🚀'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Toast Notification ── */}
+      {toast && (
+        <div style={{
+          position: 'fixed',
+          bottom: 32,
+          left: '50%',
+          transform: 'translateX(-50%)',
+          background: toast.type === 'success' ? t.green : '#EF4444',
+          color: '#fff',
+          padding: '14px 28px',
+          borderRadius: 16,
+          fontWeight: 700,
+          fontSize: '0.9rem',
+          boxShadow: '0 8px 32px rgba(0,0,0,0.2)',
+          zIndex: 9999,
+          animation: 'slideUp 0.3s ease',
+          fontFamily: 'inherit',
+          whiteSpace: 'nowrap',
+        }}>
+          {toast.msg}
         </div>
       )}
     </>

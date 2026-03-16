@@ -3,18 +3,8 @@
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 
-// ─── Theme ─────────────────────────────────────────────────────────────────────
-const t = {
-  bg: '#0A0C14',
-  surface: '#12141F',
-  border: '#1E2236',
-  text: '#EDF0F7',
-  sub: '#6B7294',
-  muted: '#3D4260',
-  accent: '#5B6CF8',
-  green: '#22C55E',
-  red: '#EF4444',
-};
+import { theme } from '../lib/theme';
+const t = theme.light;
 
 // ─── SVG Icons ─────────────────────────────────────────────────────────────────
 const WalletIcon = () => (
@@ -103,10 +93,14 @@ const Particles = () => (
   </div>
 );
 
+import { useSession, signOut } from 'next-auth/react';
+
 // ─── Landing Page ──────────────────────────────────────────────────────────────
 export default function LandingPage() {
+  const { data: session } = useSession();
   const [scrollY, setScrollY] = useState(0);
   const [mounted, setMounted] = useState(false);
+  const [imgError, setImgError] = useState(false);
 
   useEffect(() => {
     setMounted(true);
@@ -254,7 +248,7 @@ export default function LandingPage() {
       <nav style={{
         position: 'fixed', top: 0, left: 0, right: 0, zIndex: 100,
         padding: '14px clamp(1rem, 4vw, 3rem)',
-        background: scrollY > 50 ? 'rgba(10, 12, 20, 0.85)' : 'transparent',
+        background: scrollY > 50 ? 'rgba(255, 255, 255, 0.85)' : 'transparent',
         backdropFilter: scrollY > 50 ? 'blur(20px)' : 'none',
         borderBottom: scrollY > 50 ? `1px solid ${t.border}` : '1px solid transparent',
         transition: 'all 0.3s',
@@ -271,9 +265,26 @@ export default function LandingPage() {
         <div className="nav-links" style={{ display: 'flex', gap: 32, alignItems: 'center' }}>
           <a href="#features" className="nav-link">Fitur</a>
           <a href="#stats" className="nav-link">Keunggulan</a>
-          <a href="#cta" className="nav-link">Mulai</a>
+          {session ? (
+            <>
+              <Link href="/dashboard" className="nav-link">Dashboard</Link>
+              <Link href="/c/history" className="nav-link">History Split</Link>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                {session.user?.image && !imgError ? (
+                  <img src={session.user.image} referrerPolicy="no-referrer" alt={session.user.name || ''} onError={() => setImgError(true)} style={{ width: 28, height: 28, borderRadius: '50%', border: `1px solid ${t.accent}` }} />
+                ) : (
+                  <div style={{ width: 28, height: 28, borderRadius: '50%', background: t.accent, color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.65rem', fontWeight: 800 }}>
+                    {session.user?.name?.charAt(0).toUpperCase() || 'U'}
+                  </div>
+                )}
+                <button onClick={() => signOut()} className="nav-link" style={{ background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit' }}>Keluar</button>
+              </div>
+            </>
+          ) : (
+            <Link href="/api/auth/signin" className="nav-link">Masuk</Link>
+          )}
           <Link href="/dashboard" className="cta-btn cta-primary" style={{ padding: '10px 24px', fontSize: '0.82rem', borderRadius: 10 }}>
-            Buka Dashboard
+            {session ? 'Buka Dashboard' : 'Mulai Sekarang'}
           </Link>
         </div>
         <Link href="/dashboard" className="cta-btn cta-primary nav-mobile-btn" style={{ padding: '8px 18px', fontSize: '0.78rem', borderRadius: 10, display: 'none' }}>

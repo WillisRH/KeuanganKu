@@ -1,29 +1,15 @@
 'use client';
 
 import { useState, useEffect, useMemo, useRef } from 'react';
-import { getTransactions, addTransaction } from './actions';
-import { Expense, Budget } from '../node_modules/.prisma/client-custom';
+import { signOut, useSession } from 'next-auth/react';
+import { getTransactions, addTransaction, getWhatsAppToken } from './actions';
+import { Expense, Budget } from '@prisma/client';
 import QRCode from 'react-qr-code';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, BarChart, Bar, XAxis, YAxis, CartesianGrid } from 'recharts';
 import ReactMarkdown from 'react-markdown';
 import Link from 'next/link';
 
-// ─── Theme ────────────────────────────────────────────────────────────────────
-const makeTheme = (dark: boolean) => ({
-  bg:      dark ? '#0C0E16' : '#F2F4F8',
-  surface: dark ? '#141620' : '#FFFFFF',
-  surf2:   dark ? '#1C1F2E' : '#F8F9FC',
-  border:  dark ? '#252840' : '#E4E7EF',
-  text:    dark ? '#EDF0F7' : '#111827',
-  sub:     dark ? '#5B6380' : '#9CA3AF',
-  muted:   dark ? '#3D4260' : '#D1D5DB',
-  accent:  '#5B6CF8',
-  green:   '#22C55E',
-  red:     dark ? '#FF6B6B' : '#EF4444',
-  yellow:  '#F59E0B',
-  shadow:  dark ? '0 4px 32px rgba(0,0,0,0.5)' : '0 4px 24px rgba(91,108,248,0.08)',
-  shad2:   dark ? '0 2px 12px rgba(0,0,0,0.3)' : '0 2px 12px rgba(0,0,0,0.04)',
-});
+import { makeTheme, CHART_COLORS } from '../lib/theme';
 
 const CAT: Record<string, { color: string; emoji: string }> = {
   makanan:        { color: '#F97316', emoji: '🍜' },
@@ -83,7 +69,6 @@ const CAT: Record<string, { color: string; emoji: string }> = {
   lainnya:        { color: '#94A3B8', emoji: '📌' },
 };
 
-const CHART_COLORS = ['#5B6CF8','#F97316','#22C55E','#F59E0B','#EC4899','#3B82F6','#8B5CF6','#10B981'];
 const getCat = (cat: string) => CAT[cat.toLowerCase()] ?? { color: '#94A3B8', emoji: '📌' };
 
 const fmt    = (n: number) => 'Rp ' + Math.abs(n).toLocaleString('id-ID');
@@ -146,7 +131,7 @@ const PrIcon = () => (
   </svg>
 );
 const SunIcon = () => (
-  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
     <circle cx="12" cy="12" r="5"/>
     <line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/>
     <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/>
@@ -155,7 +140,7 @@ const SunIcon = () => (
   </svg>
 );
 const MoonIcon = () => (
-  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
     <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
   </svg>
 );
@@ -206,6 +191,21 @@ const MicIcon = ({ size=16 }: { size?:number }) => (
     <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/>
   </svg>
 );
+const EyeIcon = ({ size=16 }: { size?:number }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>
+  </svg>
+);
+const EyeOffIcon = ({ size=16 }: { size?:number }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/>
+  </svg>
+);
+const CopyIcon = ({ size=14 }: { size?:number }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+  </svg>
+);
 const ClipIcon = () => (
   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
     <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/>
@@ -213,7 +213,7 @@ const ClipIcon = () => (
 );
 const StopIcon = () => (
   <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
-    <rect x="4" y="4" width="16" height="16" rx="2"/>
+    <rect x="6" y="6" width="12" height="12" rx="2"/>
   </svg>
 );
 const AlertIcon = ({ size=20 }: { size?:number }) => (
@@ -265,16 +265,30 @@ const TypingMarkdown = ({ content, speed = 12, onUpdate, onComplete }: { content
 
 // ─── Component ────────────────────────────────────────────────────────────────
 export default function ExpenseTable({ expenses }: { expenses: Expense[] }) {
+  const { data: session, status } = useSession();
+  const Skeleton = ({ width, height, radius = 12, style = {} }: { width: string | number, height: string | number, radius?: number, style?: React.CSSProperties }) => (
+    <span className="skeleton" style={{ display: 'inline-block', width, height, borderRadius: radius, ...style }} />
+  );
+  const userName = session?.user?.name || '';
+  const firstName = userName ? userName.split(' ')[0] : 'User';
+  const userImage = session?.user?.image;
+
   const [data, setData]         = useState<Expense[]>(expenses);
   const [budgets, setBudgets]   = useState<Budget[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
 
   const loadData = async (vDate: Date = viewDate) => {
+    setIsLoading(true);
     try {
       const res = await getTransactions();
       setData(res);
       const bRes = await fetch(`/api/budget?month=${vDate.getMonth()+1}&year=${vDate.getFullYear()}`);
       if (bRes.ok) setBudgets(await bRes.json());
-    } catch(err) { console.error(err); }
+    } catch(err) { 
+      console.error(err); 
+    } finally {
+      setIsLoading(false);
+    }
   };
   const [dark, setDark]         = useState(false);
   const [search, setSearch]     = useState('');
@@ -291,10 +305,12 @@ export default function ExpenseTable({ expenses }: { expenses: Expense[] }) {
   const [printId, setPrintId]   = useState<string|null>(null);
   const [monthlyPrintId, setMonthlyPrintId] = useState<string|null>(null);
   const [calendarSelectedDay, setCalendarSelectedDay] = useState<Date|null>(null);
+  const [showProfileMenu, setShowProfileMenu] = useState(false);
 
   // Custom UI Notifications
   const [toast, setToast] = useState<{msg:string, type:'success'|'error'|'info'}|null>(null);
   const [confirmModal, setConfirmModal] = useState<{msg:string, onConfirm:()=>void}|null>(null);
+  const [imgError, setImgError] = useState(false);
 
   const showToast = (msg:string, type:'success'|'error'|'info' = 'success') => {
     setToast({ msg, type });
@@ -335,13 +351,18 @@ export default function ExpenseTable({ expenses }: { expenses: Expense[] }) {
 
   // Chat State
   const [showChat, setShowChat] = useState(false);
-  const [chatMessages, setChatMessages] = useState<{role:'user'|'assistant', content:string, isTyped?:boolean, actionData?:Expense[], budgetAlerts?: {category:string, limit:number, spent:number, status: 'danger'|'warning'}[], balanceAlert?: {balance:number}, pendingBudget?:{category:string, amount:number, confirmed?:boolean}}[]>([
-    { role: 'assistant', content: (() => {
+  const [chatMessages, setChatMessages] = useState<{role:'user'|'assistant', content:string, isTyped?:boolean, actionData?:Expense[], budgetAlerts?: {category:string, limit:number, spent:number, status: 'danger'|'warning'}[], balanceAlert?: {balance:number}, pendingBudget?:{category:string, amount:number, confirmed?:boolean}}[]>([]);
+
+  useEffect(() => {
+    if (mounted && session?.user) {
       const h = new Date().getHours();
       let g = 'Malam'; if (h < 11) g = 'Pagi'; else if (h < 15) g = 'Siang'; else if (h < 18) g = 'Sore';
-      return `Halo selamat ${g} Mas! Aku Keuanganku AI. Ada yang bisa aku bantu seputar transaksimu?`;
-    })(), isTyped: true }
-  ]);
+      const firstName = userName.split(' ')[0];
+      setChatMessages([
+        { role: 'assistant', content: `Halo selamat ${g} ${firstName}! Aku Keuanganku AI. Ada yang bisa aku bantu seputar transaksimu?`, isTyped: true }
+      ]);
+    }
+  }, [mounted, session]);
   const [chatInput, setChatInput] = useState('');
   const [isChatLoading, setIsChatLoading] = useState(false);
   const chatEndRef = useRef<HTMLDivElement>(null);
@@ -358,6 +379,60 @@ export default function ExpenseTable({ expenses }: { expenses: Expense[] }) {
   const pdfInputRef = useRef<HTMLInputElement>(null);
   const pendingMonthlyPrintRef = useRef(false);
   const pendingMonthlyTitleRef = useRef('');
+  const [waLinkStatus, setWaLinkStatus] = useState<{ token: string | null, linked: boolean, waNumber: string | null, updatedAt: Date | null } | null>(null);
+  const [waMasked, setWaMasked] = useState(true);
+  const [balMasked, setBalMasked] = useState(false);
+  const [waCountdown, setWaCountdown] = useState<string | null>(null);
+  const [waPersistLinked, setWaPersistLinked] = useState(false);
+
+  const fetchWaToken = async (force: boolean = false) => {
+    try {
+      const res = await getWhatsAppToken(force);
+      setWaLinkStatus(res as any);
+      if (res.linked) {
+        setWaPersistLinked(true);
+        if (mounted) localStorage.setItem('expense-wa-linked', 'true');
+      } else {
+        setWaPersistLinked(false);
+        if (mounted) localStorage.setItem('expense-wa-linked', 'false');
+      }
+    } catch (err) {
+      console.error(err);
+      showToast('Gagal memuat token WhatsApp', 'error');
+    }
+  };
+
+  useEffect(() => {
+    if (!waLinkStatus || waLinkStatus.linked || !waLinkStatus.updatedAt) {
+      setWaCountdown(null);
+      return;
+    }
+
+    const timer = setInterval(() => {
+      const start = new Date(waLinkStatus.updatedAt!).getTime();
+      const now = Date.now();
+      const diff = 5 * 60 * 1000 - (now - start);
+
+      if (diff <= 0) {
+        setWaCountdown('Expired');
+        clearInterval(timer);
+        fetchWaToken(); // Auto-refresh when expired
+      } else {
+        const min = Math.floor(diff / 60000);
+        const sec = Math.floor((diff % 60000) / 1000);
+        setWaCountdown(`${min}:${sec.toString().padStart(2, '0')}`);
+      }
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, [waLinkStatus]);
+
+  const copyWaToken = () => {
+    if (!waLinkStatus?.token) return;
+    const text = `VALIDASI ${waLinkStatus.token}`;
+    navigator.clipboard.writeText(text);
+    showToast('Teks validasi berhasil disalin!', 'info');
+  };
 
   // Wait for QR code to render before calling window.print()
   useEffect(() => {
@@ -460,6 +535,9 @@ export default function ExpenseTable({ expenses }: { expenses: Expense[] }) {
         }]);
         if (data.actionData) {
           loadData(); // Re-fetch main table if the AI added a row
+          data.actionData.forEach((trx: any) => {
+            showToast(`${trx.type === 'income' ? '💰 Pemasukan' : '💸 Pengeluaran'} "${trx.item}" berhasil dicatat!`, 'success');
+          });
         }
       }
     } catch (err) {
@@ -486,11 +564,11 @@ export default function ExpenseTable({ expenses }: { expenses: Expense[] }) {
         if (clone[msgIndex]?.pendingBudget) {
           clone[msgIndex].pendingBudget!.confirmed = true;
         }
-        return [...clone, { role: 'assistant', content: `Sip Mas! Target pengeluaran untuk kategori **${b.category}** sebesar ${fmt(b.amount)} berhasil aku simpan ya! 🎯` }];
+        return [...clone, { role: 'assistant', content: `Sip ${firstName}! Target pengeluaran untuk kategori **${b.category}** sebesar ${fmt(b.amount)} berhasil aku simpan ya! 🎯` }];
       });
     } catch(e) {
       console.error(e);
-      setChatMessages(prev => [...prev, { role: 'assistant', content: `Maaf Mas, gagal menyimpan target anggarannya.` }]);
+      setChatMessages(prev => [...prev, { role: 'assistant', content: `Maaf ${firstName}, gagal menyimpan target anggarannya.` }]);
     } finally {
       setIsChatLoading(false);
     }
@@ -499,16 +577,30 @@ export default function ExpenseTable({ expenses }: { expenses: Expense[] }) {
   useEffect(() => {
     setMounted(true);
     if (localStorage.getItem('expense-theme') === 'dark') setDark(true);
+    if (localStorage.getItem('expense-wa-masked') === 'false') setWaMasked(false);
+    if (localStorage.getItem('expense-bal-masked') === 'true') setBalMasked(true);
+    if (localStorage.getItem('expense-wa-linked') === 'true') setWaPersistLinked(true);
     loadData(); // Load budgets on mount
+    fetchWaToken(); // Auto-sync WhatsApp on mount
   }, []);
 
   useEffect(() => { if (mounted) localStorage.setItem('expense-theme', dark ? 'dark' : 'light'); }, [dark, mounted]);
+  useEffect(() => { if (mounted) localStorage.setItem('expense-wa-masked', waMasked.toString()); }, [waMasked, mounted]);
+  useEffect(() => { if (mounted) localStorage.setItem('expense-bal-masked', balMasked.toString()); }, [balMasked, mounted]);
 
   useEffect(() => {
     if (!mounted) return;
     const id = setInterval(async () => {
       try { 
-        setData(await getTransactions()); 
+        const fresh = await getTransactions();
+        setData(prev => {
+          const oldIds = new Set(prev.map(t => t.id));
+          const newTxs = fresh.filter(t => !oldIds.has(t.id) && !t.id.startsWith('temp-'));
+          newTxs.forEach(trx => {
+            showToast(`${trx.type === 'income' ? '💰 Pemasukan' : '💸 Pengeluaran'} "${trx.item}" berhasil dicatat!`, 'success');
+          });
+          return fresh;
+        });
         setPulse(true); 
         setTimeout(() => setPulse(false), 1000); 
       } catch {}
@@ -708,23 +800,48 @@ export default function ExpenseTable({ expenses }: { expenses: Expense[] }) {
   const handleAddSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!addItem || !addAmount) return;
+    
+    const amount = parseFloat(addAmount);
+    const tempId = 'temp-' + Date.now();
+    const newTx: Expense = {
+      id: tempId,
+      item: addItem,
+      amount,
+      category: addCategory,
+      type: addType,
+      description: addDesc,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      rawInput: '',
+      source: 'manual',
+      userId: session?.user?.id || ''
+    } as any;
+
+    // Optimistic Update
+    setData(prev => [newTx, ...prev]);
+    setAddItem(''); setAddAmount(''); setAddDesc(''); setAddCat('makanan'); setAddType('expense');
+    setShowAdd(false);
+    setPulse(true); setTimeout(() => setPulse(false), 1000);
+
     setSubmitting(true);
     try {
-      await addTransaction({
-        item: addItem,
-        amount: parseFloat(addAmount),
-        category: addCategory,
-        type: addType,
-        description: addDesc
+      const res = await addTransaction({
+        item: newTx.item,
+        amount: newTx.amount,
+        category: newTx.category,
+        type: newTx.type,
+        description: newTx.description
       });
-      // Reset form & close
-      setAddItem(''); setAddAmount(''); setAddDesc(''); setAddCat('makanan'); setAddType('expense');
-      setShowAdd(false);
-      // Refresh Data
-      setData(await getTransactions());
-      setPulse(true); setTimeout(() => setPulse(false), 1000);
+      
+      // Update with real ID
+      if (res?.id) {
+        setData(prev => prev.map(t => t.id === tempId ? res : t));
+        showToast(`${addType === 'income' ? '💰 Pemasukan' : '💸 Pengeluaran'} "${newTx.item}" berhasil dicatat!`, 'success');
+      }
     } catch (err) {
       console.error('Failed to add transaction:', err);
+      // Rollback
+      setData(prev => prev.filter(t => t.id !== tempId));
       showToast('Gagal menyimpan transaksi.', 'error');
     } finally {
       setSubmitting(false);
@@ -838,6 +955,7 @@ export default function ExpenseTable({ expenses }: { expenses: Expense[] }) {
         @keyframes barFill { from{width:0%} }
         @keyframes fadeIn  { from{opacity:0} to{opacity:1} }
         @keyframes glow    { 0%,100%{opacity:.6} 50%{opacity:1} }
+        @keyframes fadeUp  { from{opacity:0; transform:translateY(10px)} to{opacity:1; transform:translateY(0)} }
 
         /* ── Animation utilities ────────────────────────── */
         .f1{animation:up .45s cubic-bezier(.16,1,.3,1) both .04s}
@@ -996,8 +1114,6 @@ export default function ExpenseTable({ expenses }: { expenses: Expense[] }) {
           .dsk{display:none !important}
           .mob{display:flex !important}
           .sg{grid-template-columns:1fr 1fr !important}
-          .ha .ibtn span{display:none}
-          .ha .ibtn{padding:7px !important}
           .dsk-only { display:none !important; }
           .mob-only { display:flex !important; }
           .sidebar { margin-bottom:0.5rem !important; }
@@ -1080,7 +1196,11 @@ export default function ExpenseTable({ expenses }: { expenses: Expense[] }) {
                   <div style={{ marginTop:4 }}>
                     <p style={{ fontSize:'clamp(0.65rem,2vw,0.75rem)', color:t.sub, fontWeight:600, display:'flex', alignItems:'center', gap:4 }}>
                       <span style={{ fontSize:'clamp(12px,3vw,14px)' }}>{emoji}</span> 
-                      <span>{greet}, <span style={{ color:t.text, fontWeight:700 }}>Mas!</span></span>
+                      {status === 'loading' ? (
+                        <span>{greet}...</span>
+                      ) : (
+                        <span>{greet}, <span style={{ color:t.text, fontWeight:700 }}>{userName.split(' ')[0] || 'Teman'}!</span></span>
+                      )}
                     </p>
                     <p className="dsk-only" style={{ fontSize:'0.62rem', color:t.muted, marginTop:2, fontWeight:500, display:'flex', alignItems:'center', gap:4 }}>
                       📆 {dayName}, {dateStr}
@@ -1107,17 +1227,96 @@ export default function ExpenseTable({ expenses }: { expenses: Expense[] }) {
             </div>
           </div>
 
-          <div className="ha" style={{ display:'flex', gap:8, alignItems:'center' }}>
-            <Link href="/c" style={{ textDecoration: 'none' }}>
-              <button className="ibtn" style={{ background: t.accent + '14', color: t.accent, borderColor: t.accent + '33' }}>
-                <StarIcon /> <span>Split Bill</span>
-              </button>
-            </Link>
-            <button className="ibtn" onClick={exportCSV}><DlIcon /><span>CSV</span></button>
-            <button className="ibtn" onClick={()=>setShowPrintSettings(true)}><PrIcon /><span>Print</span></button>
-            <button onClick={()=>setDark(!dark)} style={{ width:34, height:34, borderRadius:10, border:`1px solid ${t.border}`, background:t.surface, color:t.sub, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center' }}>
+          <div className="ha" style={{ display:'flex', gap:12, alignItems:'center' }}>
+            <button onClick={()=>setDark(!dark)} className="ibtn" style={{ width:42, height:42, borderRadius:12, border:`1px solid ${t.border}`, background:t.surface, color:t.accent, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', minWidth:42, boxShadow:t.shad2 }}>
               {dark ? <SunIcon /> : <MoonIcon />}
             </button>
+            <div style={{ position:'relative' }}>
+              <div 
+                onClick={() => setShowProfileMenu(!showProfileMenu)}
+                style={{ cursor:'pointer', transition:'transform 0.2s' }}
+                onMouseEnter={(e) => e.currentTarget.style.transform = 'scale(1.05)'}
+                onMouseLeave={(e) => e.currentTarget.style.transform = 'scale(1)'}
+              >
+                {userImage && !imgError ? (
+                  <img src={userImage} referrerPolicy="no-referrer" alt={userName} onError={() => setImgError(true)} style={{ width:34, height:34, borderRadius:'50%', border:`2px solid ${t.accent}`, objectFit:'cover' }} />
+                ) : (
+                  <div style={{ width:34, height:34, borderRadius:'50%', background:t.accent, color:'#fff', display:'flex', alignItems:'center', justifyContent:'center', fontSize:'0.85rem', fontWeight:800 }}>
+                    {(userName || 'User').charAt(0).toUpperCase()}
+                  </div>
+                )}
+              </div>
+              
+              {showProfileMenu && (
+                <>
+                  <div style={{ position:'fixed', inset:0, zIndex:998 }} onClick={() => setShowProfileMenu(false)} />
+                  <div style={{ 
+                    position:'absolute', top:'100%', right:0, marginTop:10, 
+                    background:t.surface, border:`1px solid ${t.border}`, borderRadius:16, 
+                    boxShadow:t.shadow, padding:12, zIndex:999, minWidth:200,
+                    maxWidth: '85vw',
+                    animation: 'fadeUp 0.3s cubic-bezier(0.16, 1, 0.3, 1)',
+                    color: t.text
+                  }}>
+                    <div style={{ marginBottom:12, paddingBottom:12, borderBottom:`1px solid ${t.border}` }}>
+                      <p style={{ margin:0, fontWeight:700, fontSize:'0.85rem', color:t.text }}>{userName}</p>
+                      <p style={{ margin:0, fontSize:'0.7rem', color:t.sub }}>{session?.user?.email}</p>
+                    </div>
+                    <Link href="/c" style={{ textDecoration: 'none' }}>
+                      <button className="ibtn" style={{ width:'100%', justifyContent:'flex-start', border:'none', background:'none', color:t.text, padding:'8px 4px' }}>
+                        <StarIcon /> <span>Split Bill</span>
+                      </button>
+                    </Link>
+                    <button onClick={exportCSV} className="ibtn" style={{ width:'100%', justifyContent:'flex-start', border:'none', background:'none', color:t.text, padding:'8px 4px' }}>
+                      <DlIcon /> <span>Export CSV</span>
+                    </button>
+                    <button onClick={()=>{setShowPrintSettings(true); setShowProfileMenu(false);}} className="ibtn" style={{ width:'100%', justifyContent:'flex-start', border:'none', background:'none', color:t.text, padding:'8px 4px' }}>
+                      <PrIcon /> <span>Cetak Laporan</span>
+                    </button>
+                    <div style={{ padding: '8px 4px', borderTop: `1px solid ${t.border}`, marginTop: 8 }}>
+                      <p style={{ margin: '0 0 8px 0', fontSize: '0.65rem', fontWeight: 700, color: t.sub, textTransform: 'uppercase', letterSpacing: '0.05em' }}>WhatsApp Bot</p>
+                      {waLinkStatus?.linked ? (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 10px', background: t.surf2, borderRadius: 10, border: `1px solid ${t.border}` }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                              <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#25D366' }} />
+                              <span style={{ fontSize: '0.75rem', fontWeight: 700, color: t.text }}>
+                                {waMasked ? (waLinkStatus.waNumber?.replace(/(\d{4})\d+(\d{4})/, '$1****$2') || 'Linked') : waLinkStatus.waNumber}
+                              </span>
+                            </div>
+                            <button 
+                              onClick={() => setWaMasked(!waMasked)}
+                              style={{ background: 'none', border: 'none', color: t.sub, cursor: 'pointer', padding: '8px', borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.2s' }}
+                              onMouseEnter={e => { e.currentTarget.style.background = t.surf2; e.currentTarget.style.color = t.accent; }}
+                              onMouseLeave={e => { e.currentTarget.style.background = 'none'; e.currentTarget.style.color = t.sub; }}
+                              title={waMasked ? 'Buka Sensor' : 'Sensor Nomor'}
+                            >
+                              {waMasked ? <EyeIcon size={16} /> : <EyeOffIcon size={16} />}
+                            </button>
+                          </div>
+                          <p style={{ margin: 0, fontSize: '0.6rem', color: '#25D366', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4 }}>
+                            <span>✓</span> Akun Terhubung
+                          </p>
+                        </div>
+                      ) : (
+                        <div style={{ padding: '8px 10px', background: t.surf2, borderRadius: 10, border: `1px dashed ${t.border}`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                          <p style={{ margin: 0, fontSize: '0.7rem', color: t.sub }}>Belum Terhubung</p>
+                        </div>
+                      )}
+                    </div>
+
+                    <button onClick={() => signOut()} style={{ 
+                      width:'100%', marginTop:8, padding:'10px', borderRadius:10, 
+                      background:t.red + '15', color:t.red, border:'none', 
+                      fontSize:'0.8rem', fontWeight:700, cursor:'pointer',
+                      display:'flex', alignItems:'center', justifyContent:'center', gap:6
+                    }}>
+                      🏃 Keluar Aplikasi
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
           </div>
         </header>
 
@@ -1137,13 +1336,32 @@ export default function ExpenseTable({ expenses }: { expenses: Expense[] }) {
               <WaveBg color={balPos?'#60A5FA':'#F87171'} />
               <Dots color={balPos?'#93C5FD':'#FCA5A5'} />
               <div style={{ position:'relative', zIndex:1 }}>
-                <p style={{ fontSize:'0.62rem', fontWeight:700, letterSpacing:'0.1em', textTransform:'uppercase', opacity:.55, color:'#fff', marginBottom:6 }}>Saldo Bersih</p>
+                <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:6 }}>
+                  <p style={{ fontSize:'0.62rem', fontWeight:700, letterSpacing:'0.1em', textTransform:'uppercase', opacity:.55, color:'#fff' }}>Saldo Bersih</p>
+                  <button 
+                    onClick={() => setBalMasked(!balMasked)}
+                    style={{ background:'none', border:'none', color:'#fff', opacity:0.6, cursor:'pointer', padding:'6px', borderRadius:6, display:'flex', alignItems:'center', justifyContent:'center', transition:'all 0.2s' }}
+                    onMouseEnter={e => e.currentTarget.style.opacity = '1'}
+                    onMouseLeave={e => e.currentTarget.style.opacity = '0.6'}
+                    title={balMasked ? 'Buka Sensor' : 'Sensor Saldo'}
+                  >
+                    {balMasked ? <EyeIcon size={16} /> : <EyeOffIcon size={16} />}
+                  </button>
+                </div>
                 <p style={{ fontSize:'clamp(1.6rem,5vw,2rem)', fontWeight:800, letterSpacing:'-1px', color:'#fff', lineHeight:1, marginBottom:14 }}>
-                  {balPos?'':'−'}{fmt(stats.bal)}
+                  {isLoading ? <Skeleton width="160px" height="40px" radius={10} /> : (
+                    balMasked ? 'Rp •••••••' : <>{balPos?'':'−'}{fmt(stats.bal)}</>
+                  )}
                 </p>
                 <div style={{ display:'flex', gap:14, flexWrap:'wrap', marginBottom:16 }}>
-                  <span style={{ fontSize:'0.72rem', color:'#86EFAC', display:'flex', alignItems:'center', gap:4 }}><UpIcon /> {fmtS(stats.inc)}</span>
-                  <span style={{ fontSize:'0.72rem', color:'#FCA5A5', display:'flex', alignItems:'center', gap:4 }}><DnIcon /> {fmtS(stats.exp)}</span>
+                  <span style={{ fontSize:'0.72rem', color:'#86EFAC', display:'flex', alignItems:'center', gap:4 }}>
+                    <UpIcon /> 
+                    {isLoading ? <Skeleton width="60px" height="14px" radius={4} /> : (balMasked ? 'Rp ••••' : fmtS(stats.inc))}
+                  </span>
+                  <span style={{ fontSize:'0.72rem', color:'#FCA5A5', display:'flex', alignItems:'center', gap:4 }}>
+                    <DnIcon /> 
+                    {isLoading ? <Skeleton width="60px" height="14px" radius={4} /> : (balMasked ? 'Rp ••••' : fmtS(stats.exp))}
+                  </span>
                 </div>
                 
                 <button onClick={()=>setShowAdd(true)} style={{ width:'100%', height:42, borderRadius:12, background:`linear-gradient(135deg,${t.accent},#9B7CF8)`, color:'#fff', border:'none', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', gap:8, fontWeight:700, fontSize:'0.82rem', boxShadow:`0 8px 24px ${t.accent}50`, transition:'transform 0.15s, box-shadow 0.15s', letterSpacing:'0.01em' }} onMouseDown={e=>{e.currentTarget.style.transform='scale(0.96)';e.currentTarget.style.boxShadow=`0 4px 12px ${t.accent}40`}} onMouseUp={e=>{e.currentTarget.style.transform='scale(1)';e.currentTarget.style.boxShadow=`0 8px 24px ${t.accent}50`}} onMouseLeave={e=>{e.currentTarget.style.transform='scale(1)';e.currentTarget.style.boxShadow=`0 8px 24px ${t.accent}50`}}>
@@ -1164,14 +1382,16 @@ export default function ExpenseTable({ expenses }: { expenses: Expense[] }) {
                     {c.svg}
                   </div>
                   <p style={{ fontSize:'0.6rem', fontWeight:700, textTransform:'uppercase', letterSpacing:'0.07em', color:t.sub, marginBottom:4 }}>{c.label}</p>
-                  <p style={{ fontSize:'1rem', fontWeight:900, color:c.color, letterSpacing:'-0.5px', lineHeight:1 }}>{fmtS(c.val)}</p>
+                  <p style={{ fontSize:'1rem', fontWeight:900, color:c.color, letterSpacing:'-0.5px', lineHeight:1 }}>
+                    {balMasked ? 'Rp ••••' : fmtS(c.val)}
+                  </p>
                   <p style={{ fontSize:'0.62rem', color:t.sub, marginTop:5 }}>{c.count} transaksi</p>
                 </div>
               ))}
             </div>
 
             {/* ── BUDGETS ── */}
-            <div style={{ background:t.surface, border:`1px solid ${t.border}`, borderRadius:16, padding:'16px', boxShadow:t.shad2 }}>
+            <div style={{ background:t.surface, border:`1px solid ${t.border}`, borderRadius:16, padding:'16px', boxShadow:t.shad2, marginBottom:'1rem' }}>
               <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:'0.9rem' }}>
                 <h3 style={{ fontSize:'0.85rem', fontWeight:800 }}>🎯 Anggaran</h3>
                 <button onClick={() => setShowBudgetModal(true)} style={{ height:30, padding:'0 12px', borderRadius:8, background:`linear-gradient(135deg,${t.accent},#9B7CF8)`, color:'#fff', border:'none', cursor:'pointer', display:'flex', alignItems:'center', gap:5, fontWeight:700, fontSize:'0.68rem', boxShadow:`0 4px 12px ${t.accent}40`, transition:'transform 0.1s' }} onMouseDown={e=>e.currentTarget.style.transform='scale(0.96)'} onMouseUp={e=>e.currentTarget.style.transform='scale(1)'} onMouseLeave={e=>e.currentTarget.style.transform='scale(1)'}>
@@ -1218,7 +1438,7 @@ export default function ExpenseTable({ expenses }: { expenses: Expense[] }) {
 
             {/* ── TOP SPENDER ── */}
             {top3.length > 0 && (
-              <div style={{ background:t.surface, border:`1px solid ${t.border}`, borderRadius:16, padding:'16px', boxShadow:t.shad2, marginTop:'1rem' }}>
+              <div style={{ background:t.surface, border:`1px solid ${t.border}`, borderRadius:16, padding:'16px', boxShadow:t.shad2, marginTop:'0rem', marginBottom:'1rem' }}>
                 <p style={{ fontSize:'0.68rem', fontWeight:700, textTransform:'uppercase', letterSpacing:'0.07em', color:t.sub, marginBottom:14 }}>🔥 Top Pengeluaran</p>
                 {top3.map((e, i) => {
                   const cat = getCat(e.category);
@@ -1235,6 +1455,70 @@ export default function ExpenseTable({ expenses }: { expenses: Expense[] }) {
                     </div>
                   );
                 })}
+              </div>
+            )}
+
+            {/* ── WHATSAPP BOT ── */}
+            {(!waPersistLinked && (!waLinkStatus || !waLinkStatus.linked)) && (
+              <div style={{ background:t.surface, border:`1px solid ${t.border}`, borderRadius:16, padding:'16px', boxShadow:t.shad2, position:'relative', overflow:'hidden' }}>
+                <div style={{ position:'absolute', top:0, right:0, width:40, height:40, borderRadius:'0 0 0 20px', background:`linear-gradient(135deg,#25D36615,#25D36605)`, pointerEvents:'none' }} />
+                <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:12 }}>
+                  <div style={{ width:32, height:32, borderRadius:9, background:`linear-gradient(135deg,#25D36625,#25D36610)`, color:'#25D366', display:'flex', alignItems:'center', justifyContent:'center', fontSize:'1rem' }}>
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+                      <path d="M12.031 2c-5.506 0-9.969 4.463-9.969 9.969 0 1.758.459 3.413 1.264 4.859l-1.346 4.918 5.035-1.322c1.402.766 2.992 1.201 4.679 1.201 5.506 0 9.969-4.463 9.969-9.969s-4.463-9.969-9.969-9.969zm5.341 14.121c-.227.635-1.332 1.227-1.841 1.291-.459.059-.882.322-2.731-.414-2.314-.925-3.791-3.277-3.906-3.419-.115-.141-.933-1.241-.933-2.366 0-1.125.572-1.682.782-1.921.21-.24.541-.3.722-.3.18 0 .36 0 .511.006.151.006.353-.06.551.42s.672 1.642.732 1.762.1.26.021.421c-.079.16-.171.26-.341.44-.171.18-.363.313-.511.511-.171.211-.353.441-.151.802.201.36.892 1.481 1.912 2.392 1.311 1.161 2.365 1.541 2.706 1.712.341.171.541.141.742-.08.201-.221.862-.992 1.092-1.332.221-.341.451-.281.752-.161s1.921.902 2.251 1.072.541.25.621.391c.08.141.08.812-.147 1.447z"/>
+                    </svg>
+                  </div>
+                  <div>
+                    <h3 style={{ fontSize:'0.85rem', fontWeight:800 }}>Bot WhatsApp</h3>
+                    <p style={{ fontSize:'0.62rem', color:t.sub }}>Catat otomatis via chat</p>
+                  </div>
+                </div>
+
+                {!waLinkStatus || (!waLinkStatus.linked && !waLinkStatus.token) ? (
+                  <div style={{ textAlign: 'center' }}>
+                    <p style={{ fontSize: '0.7rem', color: t.sub, lineHeight: 1.4, marginBottom: 12 }}>
+                      Catat pengeluaran jadi lebih praktis lewat chat WhatsApp! Cukup kirim item & nominal, aku langsung rekap buat {firstName}. 😉
+                    </p>
+                    <button onClick={() => fetchWaToken(true)} style={{ width:'100%', padding:'10px', borderRadius:10, background:t.surf2, border:`1px solid ${t.border}`, color:t.text, cursor:'pointer', fontWeight:700, fontSize:'0.75rem', transition:'all 0.2s' }}
+                      onMouseEnter={e => { e.currentTarget.style.background = t.accent; e.currentTarget.style.color = '#fff'; }}
+                      onMouseLeave={e => { e.currentTarget.style.background = t.surf2; e.currentTarget.style.color = t.text; }}
+                    >
+                      ✨ Aktifkan Sekarang
+                    </button>
+                  </div>
+                ) : (
+                  <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
+                    <div style={{ padding:'10px', background:t.surf2, borderRadius:10, border:`1px solid ${t.border}`, position:'relative' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                        <p style={{ fontSize:'0.65rem', color:t.sub, margin:0 }}>Kirim pesan ini ke bot:</p>
+                        {waCountdown && (
+                          <span style={{ fontSize: '0.6rem', color: waCountdown === 'Expired' ? t.red : t.accent, fontWeight: 700 }}>
+                            ⌛ {waCountdown}
+                          </span>
+                        )}
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, background: t.surface, padding: '8px', borderRadius: 8, border: `1px solid ${t.border}40` }}>
+                        <p style={{ fontSize:'0.85rem', fontWeight:900, color:t.accent, letterSpacing:'1.2px', margin:0 }}>VALIDASI {waLinkStatus.token}</p>
+                        <button 
+                          onClick={copyWaToken} 
+                          style={{ background: t.surf2, border: 'none', color: t.sub, padding: '4px', borderRadius: 6, cursor: 'pointer', display: 'flex', alignItems: 'center', transition: 'all 0.2s' }}
+                          onMouseEnter={e => { e.currentTarget.style.color = t.accent; e.currentTarget.style.background = t.border; }}
+                          onMouseLeave={e => { e.currentTarget.style.color = t.sub; e.currentTarget.style.background = t.surf2; }}
+                          title="Salin Teks"
+                        >
+                          <CopyIcon />
+                        </button>
+                      </div>
+                      {/* <p style={{ fontSize:'0.55rem', color:t.red, marginTop:6, textAlign:'center', fontWeight:600 }}>⚠️ Token berubah setiap 5 menit</p> */}
+                    </div>
+                    {waLinkStatus.token && (
+                      <a href={`https://wa.me/6282134947596?text=${encodeURIComponent('VALIDASI ' + waLinkStatus.token)}`} target="_blank" rel="noreferrer" style={{ width:'100%', height:36, borderRadius:10, background:'#25D366', color:'#fff', border:'none', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', gap:6, fontWeight:700, fontSize:'0.75rem', textDecoration:'none', boxShadow:'0 4px 12px rgba(37,211,102,0.3)' }}>
+                        Kirim via WhatsApp
+                      </a>
+                    )}
+                    <button onClick={() => fetchWaToken(true)} style={{ background:'none', border:'none', color:t.sub, fontSize:'0.65rem', cursor:'pointer', textAlign:'center', marginTop:2 }}>Sudah kirim? Cek Status / Perbarui</button>
+                  </div>
+                )}
               </div>
             )}
           </aside>
@@ -1516,6 +1800,17 @@ export default function ExpenseTable({ expenses }: { expenses: Expense[] }) {
                           </div>
                         </div>
                       </td></tr>
+                    ) : isLoading ? (
+                      [...Array(5)].map((_, i) => (
+                        <tr key={i} style={{ borderBottom:`1px solid ${t.border}` }}>
+                          <td style={{ padding:'12px 16px' }}><Skeleton width="60px" height="16px" radius={4} /></td>
+                          <td style={{ padding:'12px 10px 12px 16px' }}><Skeleton width="26px" height="26px" radius={8} /></td>
+                          <td style={{ padding:'12px 16px' }}><Skeleton width="120px" height="18px" radius={4} /></td>
+                          <td style={{ padding:'12px 16px' }}><Skeleton width="80px" height="22px" radius={11} /></td>
+                          <td style={{ padding:'12px 16px', textAlign:'right' }}><Skeleton width="90px" height="20px" radius={4} /></td>
+                          <td style={{ padding:'12px 16px' }}><Skeleton width="100px" height="16px" radius={4} /></td>
+                        </tr>
+                      ))
                     ) : paginatedData.map(e => {
                       const cat = getCat(e.category);
                       const isIn = e.type === 'income';
@@ -1562,7 +1857,20 @@ export default function ExpenseTable({ expenses }: { expenses: Expense[] }) {
 
             {/* Mobile Cards */}
             <div className="mob" style={{ flexDirection:'column', gap:'0.5rem' }}>
-              {paginatedData.length === 0 ? (
+              {isLoading ? (
+                [...Array(5)].map((_, i) => (
+                  <div key={i} className="card-lift" style={{ background:t.surface, border:`1px solid ${t.border}`, borderRadius:16, padding:'14px', boxShadow:t.shad2 }}>
+                    <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+                      <Skeleton width="40px" height="40px" radius={12} />
+                      <div style={{ flex:1 }}>
+                        <Skeleton width="60%" height="16px" radius={4} style={{ marginBottom:6 }} />
+                        <Skeleton width="40%" height="12px" radius={4} />
+                      </div>
+                      <Skeleton width="80px" height="20px" radius={4} />
+                    </div>
+                  </div>
+                ))
+              ) : paginatedData.length === 0 ? (
                 <div style={{ textAlign:'center', padding:'3rem 1rem', color:t.sub, display:'flex', flexDirection:'column', alignItems:'center', gap:12 }}>
                   <div style={{ width:60, height:60, borderRadius:18, background:t.surf2, display:'flex', alignItems:'center', justifyContent:'center', fontSize:'1.6rem' }}>
                     {search ? '🔍' : '📭'}
@@ -2219,7 +2527,7 @@ export default function ExpenseTable({ expenses }: { expenses: Expense[] }) {
                               Kategori {alert.category} {isDanger ? 'Overbudget!' : 'Sudah 80%+'}
                             </p>
                             <div style={{ fontSize: '0.75rem', color: subText, opacity: 0.8, lineHeight: 1.4, margin:0 }}>
-                               <ReactMarkdown children={`Mas sudah pakai **${fmtS(alert.spent)}** dari limit **${fmtS(alert.limit)}**. ${isDanger ? 'Segera rem pengeluaran di kategori ini ya Mas! 🛑' : 'Dikit lagi limitnya habis nih Mas, hati-hati ya! ⚠️'}`} />
+                               <ReactMarkdown children={`${firstName} sudah pakai **${fmtS(alert.spent)}** dari limit **${fmtS(alert.limit)}**. ${isDanger ? 'Segera rem pengeluaran di kategori ini ya ' + firstName + '! 🛑' : 'Dikit lagi limitnya habis nih ' + firstName + ', hati-hati ya! ⚠️'}`} />
                             </div>
                           </div>
                         );
@@ -2237,9 +2545,9 @@ export default function ExpenseTable({ expenses }: { expenses: Expense[] }) {
                              </div>
                              <span style={{ fontSize:'0.75rem', fontWeight:800, color:'#EF4444', letterSpacing:'0.05em', textTransform:'uppercase' }}>Saldo Minus!</span>
                           </div>
-                          <p style={{ fontSize:'0.85rem', fontWeight:700, color:'#F9FAFB', margin:'0 0 4px' }}>Dompet Mas Sedang Kering!</p>
+                          <p style={{ fontSize:'0.85rem', fontWeight:700, color:'#F9FAFB', margin:'0 0 4px' }}>Dompet {firstName} Sedang Kering!</p>
                           <div style={{ fontSize: '0.75rem', color: '#D1D5DB', opacity: 0.8, lineHeight: 1.4, margin:0 }}>
-                            <ReactMarkdown children={`Saldo bersih Mas saat ini **Rp ${m.balanceAlert.balance.toLocaleString('id-ID')}**. Coba cek lagi catatannya atau tambahkan pemasukan baru ya Mas! 💸🆘`} />
+                            <ReactMarkdown children={`Saldo bersih ${firstName} saat ini **Rp ${m.balanceAlert.balance.toLocaleString('id-ID')}**. Coba cek lagi catatannya atau tambahkan pemasukan baru ya ${firstName}! 💸🆘`} />
                           </div>
                         </div>
                       )}

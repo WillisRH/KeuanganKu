@@ -1,12 +1,19 @@
 import { NextResponse } from 'next/server';
 import { GoogleGenAI, Type } from '@google/genai';
 import prisma from '../../../lib/prisma'; // Ensure correct path to prisma client
+import { auth } from '@/auth';
 
 // Initialize the Google Gen AI client with the API Key
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || '' });
 
 export async function POST(request: Request) {
   try {
+    const session = await auth();
+    if (!session?.user?.id) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    const userId = session.user.id;
+    const userName = session.user.name || 'User';
+    const firstName = userName.split(' ')[0];
+
     const contentType = request.headers.get('content-type') || '';
     
     let messages: any[];
@@ -41,6 +48,7 @@ export async function POST(request: Request) {
 
     // Fetch up to 100 of the most recent transactions to give the AI context.
     const recentExpenses = await prisma.expense.findMany({
+      where: { userId },
       orderBy: { createdAt: 'desc' },
       take: 100,
       select: {
@@ -54,7 +62,7 @@ export async function POST(request: Request) {
     });
 
     // Fetch user defined budgets
-    const budgets = await prisma.budget.findMany();
+    const budgets = await prisma.budget.findMany({ where: { userId } });
 
     const totalIncome = recentExpenses.filter(e => e.type === 'income').reduce((sum, e) => sum + e.amount, 0);
     const totalExpense = recentExpenses.filter(e => e.type === 'expense').reduce((sum, e) => sum + e.amount, 0);
@@ -96,7 +104,7 @@ ${recentExpenses.map(e => `- [${new Date(e.createdAt).toLocaleDateString('id-ID'
     const systemInstruction = `Kamu adalah Asisten Finansial Pintar ("Keuanganku AI") yang bertugas membantu pengguna menganalisa data keuangannya. 
 Kamu terhubung langsung ke database pengguna.
 Berikut adalah data transaksi pengguna terkini:\n${contextData}\n
-Gunakan data di atas untuk menjawab pertanyaan pengguna dengan RAMAH, SINGKAT, dan AKURAT. Berikan insight yang berguna. Jika pengguna bertanya hal di luar keuangan, tolak dengan sopan dengan mengatakan bahwa kamu adalah asisten khusus keuangan. Selalu format balasanmu dalam bahasa Indonesia yang santai tapi profesional (gunakan kata "Mas" jika cocok). Jangan cantumkan ID atau data mentah yang jelek dilihat, buatlah se-humanis mungkin. Jika menggunakan angka atau uang, format dengan format Rupiah (Rp X.XXX.XXX).
+Gunakan data di atas untuk menjawab pertanyaan pengguna dengan RAMAH, SINGKAT, dan AKURAT. Berikan insight yang berguna. Jika pengguna bertanya hal di luar keuangan, tolak dengan sopan dengan mengatakan bahwa kamu adalah asisten khusus keuangan. Selalu format balasanmu dalam bahasa Indonesia yang santai tapi profesional (gunakan nama "${firstName}" untuk menyapa pengguna, JANGAN pernah memanggil dengan "Mas"). Jangan cantumkan ID atau data mentah yang jelek dilihat, buatlah se-humanis mungkin. Jika menggunakan angka atau uang, format dengan format Rupiah (Rp X.XXX.XXX).
 APAPUN ITU AWALAH HURUFNYA HARUS KAPITAL! SUPAYA ENAK DILIHAT!. BERLAKU KE SEMUA OUTPUT! TERMASUK KATEGORI
 
 PENTING TENTANG "description" TRANSAKSI:
@@ -199,10 +207,10 @@ PENTING TENTANG FILE/MEDIA YANG DIUNGGAH:
     
     // 1. Initial proactive alerts calculation
     const allBudgets = await prisma.budget.findMany({
-      where: { month: currentMonth + 1, year: currentYear }
+      where: { userId, month: currentMonth + 1, year: currentYear }
     });
     const allExpensesFetch = await prisma.expense.findMany({
-      where: { type: 'expense', createdAt: { gte: new Date(currentYear, currentMonth, 1), lt: new Date(currentYear, currentMonth + 1, 1) } }
+      where: { userId, type: 'expense', createdAt: { gte: new Date(currentYear, currentMonth, 1), lt: new Date(currentYear, currentMonth + 1, 1) } }
     });
     
     const globalSpent: Record<string, number> = {};
@@ -229,7 +237,7 @@ PENTING TENTANG FILE/MEDIA YANG DIUNGGAH:
     }
 
     // Calculate current net balance
-    const totalExpBalance = await prisma.expense.findMany({ select: { amount: true, type: true } });
+    const totalExpBalance = await prisma.expense.findMany({ where: { userId }, select: { amount: true, type: true } });
     const finalInc = totalExpBalance.filter(e => e.type === 'income').reduce((s, e) => s + e.amount, 0);
     const finalExp = totalExpBalance.filter(e => e.type === 'expense').reduce((s, e) => s + e.amount, 0);
     const finalNet = finalInc - finalExp;
@@ -240,7 +248,7 @@ PENTING TENTANG FILE/MEDIA YANG DIUNGGAH:
       if (call.name === 'setBudget') {
         const { category, amount, replyText } = call.args as any;
         return NextResponse.json({
-          text: replyText || `Aku siapkan konfirmasi pengaturan budget untuk *${category}* ya Mas.`,
+          text: replyText || `Aku siapkan konfirmasi pengaturan budget untuk *${category}* ya ${firstName}.`,
           pendingBudget: { category, amount },
           budgetAlerts: proactiveAlerts.length > 0 ? proactiveAlerts : undefined,
           totalBalance: finalNet
@@ -250,12 +258,13 @@ PENTING TENTANG FILE/MEDIA YANG DIUNGGAH:
       if (call.name === 'addTransactions') {
         const { transactions } = call.args as any;
         if (!transactions || !Array.isArray(transactions) || transactions.length === 0) {
-           return NextResponse.json({ text: 'Maaf Mas, aku tidak mendeteksi transaksi yang valid dalam permintaanmu.' });
+           return NextResponse.json({ text: `Maaf ${firstName}, aku tidak mendeteksi transaksi yang valid dalam permintaanmu.` });
         }
 
         const newRecords = await prisma.$transaction(
           transactions.map((t: any) => prisma.expense.create({
             data: {
+              userId,
               amount: Number(t.amount),
               item: t.item,
               type: t.type,
@@ -270,13 +279,13 @@ PENTING TENTANG FILE/MEDIA YANG DIUNGGAH:
         const totalSaved = newRecords.reduce((sum, r) => sum + Number(r.amount), 0);
         const itemNames = newRecords.map(r => r.item).join(', ');
 
-        const finalExpenses = await prisma.expense.findMany({ select: { amount: true, type: true } });
+        const finalExpenses = await prisma.expense.findMany({ where: { userId }, select: { amount: true, type: true } });
         const lastInc = finalExpenses.filter(e => e.type === 'income').reduce((s, e) => s + e.amount, 0);
         const lastExp = finalExpenses.filter(e => e.type === 'expense').reduce((s, e) => s + e.amount, 0);
         const lastNet = lastInc - lastExp;
 
         const updatedExpenses = await prisma.expense.findMany({
-            where: { type: 'expense', createdAt: { gte: new Date(currentYear, currentMonth, 1), lt: new Date(currentYear, currentMonth + 1, 1) } }
+            where: { userId, type: 'expense', createdAt: { gte: new Date(currentYear, currentMonth, 1), lt: new Date(currentYear, currentMonth + 1, 1) } }
         });
         const updatedSpent: Record<string, number> = {};
         for (const exp of updatedExpenses) {
@@ -302,7 +311,7 @@ PENTING TENTANG FILE/MEDIA YANG DIUNGGAH:
         }
 
         return NextResponse.json({ 
-          text: `Sip Mas! **${newRecords.length} transaksi** (${itemNames}) sejumlah total Rp ${totalSaved.toLocaleString('id-ID')} sudah berhasil aku catat ya. 🎉 Ada lagi yang mau ditambah?`, 
+          text: `Sip ${firstName}! **${newRecords.length} transaksi** (${itemNames}) sejumlah total Rp ${totalSaved.toLocaleString('id-ID')} sudah berhasil aku catat ya. 🎉 Ada lagi yang mau ditambah?`, 
           actionData: newRecords,
           budgetAlerts: postAlerts.length > 0 ? postAlerts : undefined,
           totalBalance: lastNet

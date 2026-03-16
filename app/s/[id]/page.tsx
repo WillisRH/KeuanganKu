@@ -26,6 +26,7 @@ async function getBillData(id: string) {
     total: bill.total,
     taxRate: bill.taxRate,
     serviceRate: bill.serviceRate,
+    userId: bill.userId,
     _createdAt: bill.createdAt.toISOString(),
     items: bill.items.map(item => ({
       id: item.id,
@@ -36,11 +37,13 @@ async function getBillData(id: string) {
     })),
     members: bill.members.map(m => ({
       id: m.memberId, // Map back to original frontend ID
+      dbId: m.id,      // REAL DB ID for API
       name: m.name,
       subtotal: m.subtotal,
       tax: m.tax,
       service: m.service,
       total: m.total,
+      paidAmount: m.paidAmount,
       // The frontend component expects 'items' rincian inside member too
       // We calculate this on the fly to avoid even more complex relations
       items: bill.items

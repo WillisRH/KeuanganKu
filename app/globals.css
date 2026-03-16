@@ -1,4 +1,30 @@
-@import "tailwindcss";
+@keyframes shimmer { 
+  0%{background-position:-200% 0} 
+  100%{background-position:200% 0} 
+}
+.skeleton {
+  background: #E2E8F0;
+  background-image: linear-gradient(90deg, #E2E8F0 0px, #F1F5F9 40px, #E2E8F0 80px);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite linear;
+}
+
+@keyframes progress {
+  0% { width: 0%; opacity: 1; }
+  50% { width: 70%; opacity: 1; }
+  100% { width: 100%; opacity: 0; }
+}
+
+.loading-bar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  height: 3px;
+  background: linear-gradient(90deg, #5B6CF8, #9B7CF8);
+  z-index: 9999;
+  box-shadow: 0 0 10px rgba(91,108,248,0.5);
+  pointer-events: none;
+}
 
 :root {
   --background: #ffffff;
@@ -12,15 +38,10 @@
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
-
-body {
-  background: var(--background);
+html, body {
+  background: transparent;
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
+  margin: 0;
+  padding: 0;
 }

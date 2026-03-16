@@ -1,25 +1,15 @@
 'use client';
 
 import { useState, useMemo, useRef, useEffect, useCallback } from 'react';
+import { useSession } from 'next-auth/react';
 import Link from 'next/link';
 import QRCode from 'react-qr-code';
+import Navbar from '@/app/components/Navbar';
 
-// ─── Theme ────────────────────────────────────────────────────────────────────
-const makeTheme = (dark: boolean) => ({
-  bg:      dark ? '#0C0E16' : '#F2F4F8',
-  surface: dark ? '#141620' : '#FFFFFF',
-  surf2:   dark ? '#1C1F2E' : '#F8F9FC',
-  border:  dark ? '#252840' : '#E4E7EF',
-  text:    dark ? '#EDF0F7' : '#111827',
-  sub:     dark ? '#5B6380' : '#9CA3AF',
-  muted:   dark ? '#3D4260' : '#D1D5DB',
-  accent:  '#5B6CF8',
-  green:   '#22C55E',
-  red:     dark ? '#FF6B6B' : '#EF4444',
-  yellow:  '#F59E0B',
-  shadow:  dark ? '0 8px 40px rgba(0,0,0,0.6)' : '0 8px 32px rgba(91,108,248,0.12)',
-  shad2:   dark ? '0 2px 12px rgba(0,0,0,0.3)' : '0 2px 12px rgba(0,0,0,0.04)',
-});
+import { theme, makeTheme } from '@/lib/theme';
+
+// ─── Theme Helper ─────────────────────────────────────────────────────────────
+// (Using global theme from lib/theme)
 
 // ─── Icons ────────────────────────────────────────────────────────────────────
 const ArrowLeft = () => (
@@ -125,11 +115,16 @@ function Toast({ toast, dark }: { toast: ToastMsg | null; dark: boolean }) {
 }
 
 export default function SplitBillPage() {
+  const { data: session } = useSession();
   const [dark, setDark] = useState(false);
   const [members, setMembers] = useState<Member[]>([{ id: '1', name: 'Saya', colorIdx: 0 }]);
   const [items, setItems] = useState<BillItem[]>([]);
   const [taxRate, setTaxRate] = useState(11);
   const [serviceRate, setServiceRate] = useState(0);
+
+  // Editing states
+  const [editingMemberId, setEditingMemberId] = useState<string | null>(null);
+  const [tempEditName, setTempEditName] = useState('');
 
   // UI states
   const [toast, setToast] = useState<ToastMsg | null>(null);
@@ -149,6 +144,7 @@ export default function SplitBillPage() {
   const [shareLoading, setShareLoading] = useState(false);
   const [shareModal, setShareModal] = useState<{ url: string } | null>(null);
   const [copied, setCopied] = useState(false);
+  const [showNavMenu, setShowNavMenu] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const t = makeTheme(dark);
@@ -156,6 +152,18 @@ export default function SplitBillPage() {
   useEffect(() => {
     if (localStorage.getItem('expense-theme') === 'dark') setDark(true);
   }, []);
+
+  // Personalize "Saya" with user's first name
+  useEffect(() => {
+    if (session?.user?.name && members.length > 0 && members[0].name === 'Saya') {
+      const firstName = session.user.name.split(' ')[0];
+      setMembers(prev => {
+        const next = [...prev];
+        next[0] = { ...next[0], name: firstName };
+        return next;
+      });
+    }
+  }, [session, members]);
 
   useEffect(() => {
     if (addingMember && memberInputRef.current) {
@@ -192,6 +200,20 @@ export default function SplitBillPage() {
     setNewMemberName('');
     setAddingMember(false);
     showToast(`${name} ditambahkan!`);
+  };
+
+  const startEditingMember = (m: Member) => {
+    setEditingMemberId(m.id);
+    setTempEditName(m.name);
+  };
+
+  const confirmEditMember = () => {
+    const name = tempEditName.trim();
+    if (!name || !editingMemberId) { setEditingMemberId(null); return; }
+    
+    setMembers(prev => prev.map(m => m.id === editingMemberId ? { ...m, name } : m));
+    setEditingMemberId(null);
+    setTempEditName('');
   };
 
   const removeMember = (id: string) => {
@@ -361,7 +383,7 @@ export default function SplitBillPage() {
   const unassignedCount = items.filter(i => i.assignedTo.length === 0 && i.price > 0).length;
 
   return (
-    <div style={{ minHeight: '100vh', background: t.bg, color: t.text, fontFamily: "'Outfit', system-ui, sans-serif", paddingBottom: '120px', transition: 'background 0.3s, color 0.3s' }}>
+    <div style={{ minHeight: '100vh', background: t.bg, color: t.text, fontFamily: "'Outfit', system-ui, sans-serif", paddingBottom: '120px', transition: 'background 0.3s, color 0.3s', overflowX: 'hidden', width: '100%' }}>
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&display=swap');
 
@@ -632,53 +654,81 @@ export default function SplitBillPage() {
           }
         }
 
+        .hide-on-mobile { display: flex; }
+        .show-on-mobile { display: none; }
         @media (max-width: 640px) {
           .card { padding: 20px; border-radius: 20px; }
           .modal-box { padding: 24px; border-radius: 24px; }
           .hide-mobile { display: none !important; }
+          .hide-on-mobile { display: none !important; }
+          .show-on-mobile { display: flex !important; }
+          .header-container { padding: 0 12px !important; gap: 6px !important; }
+          .logo-text { display: none !important; }
+          .btn-icon { width: 34px !important; height: 34px !important; border-radius: 10px !important; }
+          .btn-primary { padding: 0 10px !important; height: 34px !important; font-size: 0.82rem !important; }
         }
       `}</style>
 
       <Toast toast={toast} dark={dark} />
 
-      {/* ── Header ─────────────────────────────────────────────────────────── */}
-      <div style={{ background: dark ? 'rgba(20,22,32,0.95)' : 'rgba(255,255,255,0.9)', backdropFilter: 'blur(20px)', borderBottom: `1px solid ${t.border}`, position: 'sticky', top: 0, zIndex: 100, transition: 'background 0.3s' }}>
-        <div style={{ maxWidth: 1100, margin: '0 auto', padding: '0 24px', height: 64, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16 }}>
-
-          <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-            <Link href="/dashboard" style={{ color: t.sub, display: 'flex', alignItems: 'center', textDecoration: 'none' }} className="btn-icon">
-              <ArrowLeft />
-            </Link>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              <div style={{ width: 34, height: 34, borderRadius: 10, background: 'linear-gradient(135deg, #5B6CF8, #9B7CF8)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', flexShrink: 0 }}>
-                <WalletIcon size={18} />
-              </div>
-              <div>
-                <span style={{ fontWeight: 900, fontSize: '1.05rem', letterSpacing: '-0.3px' }}>
-                  Keuangan<span style={{ color: t.accent }}>Ku</span>
-                </span>
-                <span style={{ color: t.sub, fontWeight: 500, fontSize: '0.85rem', marginLeft: 6 }}>Split Bill</span>
-              </div>
-            </div>
-          </div>
-
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <button className="btn-icon" onClick={toggleDark} title="Toggle tema">
-              {dark ? <SunIcon /> : <MoonIcon />}
-            </button>
-            <button className="btn-secondary hide-mobile" onClick={() => setShowAIModal(true)}>
-              <CameraIcon /> Scan AI
+      {/* ── Navbar ────────────────────────────────────────────────────────── */}
+      <Navbar 
+        dark={dark} 
+        toggleDark={toggleDark} 
+        extraActions={
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <button className="btn-icon hide-on-mobile" onClick={() => setShowAIModal(true)} title="Scan AI">
+              <CameraIcon />
             </button>
             <button
               className="btn-primary"
               onClick={generateShareLink}
-              disabled={shareLoading || items.length === 0}
+              disabled={shareLoading}
+              style={{ padding: '0 16px', height: 40, gap: 8 }}
             >
               {shareLoading ? <div className="loader" /> : <><ShareIcon /> <span className="hide-mobile">Bagikan</span></>}
             </button>
+            {/* Mobile kebab for extra actions */}
+            <div style={{ position: 'relative' }} className="show-on-mobile">
+              <button
+                className="btn-icon"
+                onClick={() => setShowNavMenu(v => !v)}
+                style={{ width: 36, height: 36, fontSize: '1.2rem' }}
+                title="Menu"
+              >
+                ⋮
+              </button>
+              {showNavMenu && (
+                <>
+                  <div onClick={() => setShowNavMenu(false)} style={{ position: 'fixed', inset: 0, zIndex: 199 }} />
+                  <div style={{
+                    position: 'absolute', right: 0, top: 44, zIndex: 200, minWidth: 160,
+                    background: dark ? '#1C1F2E' : '#fff',
+                    border: `1px solid ${t.border}`,
+                    borderRadius: 14, boxShadow: '0 8px 32px rgba(0,0,0,0.15)',
+                    padding: '6px 0', overflow: 'hidden'
+                  }}>
+                    <Link href="/c/history" onClick={() => setShowNavMenu(false)} style={{
+                      width: '100%', display: 'flex', alignItems: 'center', gap: 12,
+                      padding: '11px 18px', color: t.text, fontSize: '0.9rem',
+                      textDecoration: 'none'
+                    }}>
+                      🕒 Riwayat
+                    </Link>
+                    <button onClick={() => { setShowAIModal(true); setShowNavMenu(false); }} style={{
+                      width: '100%', display: 'flex', alignItems: 'center', gap: 12,
+                      padding: '11px 18px', background: 'none', border: 'none',
+                      color: t.text, fontSize: '0.9rem', cursor: 'pointer', textAlign: 'left'
+                    }}>
+                      <CameraIcon /> Scan Struk
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
           </div>
-        </div>
-      </div>
+        }
+      />
 
       {/* ── Main Content ───────────────────────────────────────────────────── */}
       <div style={{ maxWidth: 1100, margin: '0 auto', padding: '32px 24px' }}>
@@ -736,11 +786,31 @@ export default function SplitBillPage() {
 
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
                 {members.map((m, idx) => (
-                  <div key={m.id} className="fade-in" style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 14px 7px 8px', borderRadius: 99, background: t.surf2, border: `1.5px solid ${t.border}`, animationDelay: `${idx * 0.05}s` }}>
+                  <div key={m.id} className="fade-in" style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 14px 7px 8px', borderRadius: 99, background: t.surf2, border: `1.5px solid ${editingMemberId === m.id ? t.accent : t.border}`, animationDelay: `${idx * 0.05}s` }}>
                     <div className="member-avatar" style={{ width: 26, height: 26, fontSize: '0.72rem', background: avatarColors[m.colorIdx] }}>
                       {m.name.charAt(0).toUpperCase()}
                     </div>
-                    <span style={{ fontSize: '0.85rem', fontWeight: 700 }}>{m.name}</span>
+                    {editingMemberId === m.id ? (
+                      <input
+                        autoFocus
+                        style={{ background: 'none', border: 'none', outline: 'none', color: t.text, fontWeight: 700, fontSize: '0.85rem', width: 70 }}
+                        value={tempEditName}
+                        onChange={e => setTempEditName(e.target.value)}
+                        onBlur={confirmEditMember}
+                        onKeyDown={e => {
+                          if (e.key === 'Enter') confirmEditMember();
+                          if (e.key === 'Escape') setEditingMemberId(null);
+                        }}
+                      />
+                    ) : (
+                      <span 
+                        style={{ fontSize: '0.85rem', fontWeight: 700, cursor: 'pointer' }}
+                        onClick={() => startEditingMember(m)}
+                        title="Klik untuk edit"
+                      >
+                        {m.name}
+                      </span>
+                    )}
                     {members.length > 1 && (
                       <button onClick={() => removeMember(m.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: t.sub, display: 'flex', padding: 2, opacity: 0.7, marginLeft: -2 }}>
                         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
@@ -813,7 +883,7 @@ export default function SplitBillPage() {
                 <div className="divider" style={{ margin: '12px 0' }} />
                 <div className="summary-row">
                   <span style={{ fontWeight: 900, fontSize: '1rem' }}>Total Tagihan</span>
-                  <span style={{ fontWeight: 900, fontSize: '1.25rem', color: '#5B6CF8' }}>{fmt(grandTotal)}</span>
+                  <span style={{ fontWeight: 900, fontSize: '1.25rem', color: t.accent }}>{fmt(grandTotal)}</span>
                 </div>
               </div>
             </div>
@@ -825,7 +895,7 @@ export default function SplitBillPage() {
               <h3 style={{ fontWeight: 800, fontSize: '1rem', display: 'flex', alignItems: 'center', gap: 8 }}>
                 <span>🍽️</span> Rincian Pesanan
                 {items.length > 0 && (
-                  <span className="badge" style={{ background: '#5B6CF815', color: '#5B6CF8' }}>
+                  <span className="badge" style={{ background: t.accent + '15', color: t.accent }}>
                     {items.length}
                   </span>
                 )}
@@ -916,7 +986,7 @@ export default function SplitBillPage() {
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
                         <label className="label" style={{ margin: 0 }}>Siapa yang memesan?</label>
                         {item.assignedTo.length < members.length && (
-                          <button onClick={() => assignAll(item.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#5B6CF8', fontSize: '0.75rem', fontWeight: 700, fontFamily: 'inherit' }}>
+                          <button onClick={() => assignAll(item.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: t.accent, fontSize: '0.75rem', fontWeight: 700, fontFamily: 'inherit' }}>
                             Semua +
                           </button>
                         )}
@@ -962,7 +1032,7 @@ export default function SplitBillPage() {
                       </div>
                       <span style={{ fontWeight: 800, fontSize: '1rem' }}>{m.name}</span>
                     </div>
-                    <span style={{ fontWeight: 900, fontSize: '1.1rem', color: '#5B6CF8' }}>{fmt(m.total)}</span>
+                    <span style={{ fontWeight: 900, fontSize: '1.1rem', color: t.accent }}>{fmt(m.total)}</span>
                   </div>
 
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: m.total > 0 ? 14 : 0 }}>
@@ -985,9 +1055,9 @@ export default function SplitBillPage() {
                   </div>
 
                   {m.total > 0 && (
-                    <div style={{ background: '#5B6CF810', padding: '10px 14px', borderRadius: 10, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <span style={{ fontSize: '0.75rem', fontWeight: 800, color: '#5B6CF8' }}>TOTAL</span>
-                      <span style={{ fontWeight: 900, fontSize: '1rem', color: '#5B6CF8' }}>{fmt(m.total)}</span>
+                    <div style={{ background: t.accent + '10', padding: '10px 14px', borderRadius: 10, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span style={{ fontSize: '0.75rem', fontWeight: 800, color: t.accent }}>TOTAL</span>
+                      <span style={{ fontWeight: 900, fontSize: '1rem', color: t.accent }}>{fmt(m.total)}</span>
                     </div>
                   )}
                 </div>
@@ -1004,7 +1074,7 @@ export default function SplitBillPage() {
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
               <div>
                 <h2 style={{ fontWeight: 900, fontSize: '1.2rem', marginBottom: 4 }}>
-                  Analisa AI <span style={{ color: '#5B6CF8' }}>✨</span>
+                  Analisa AI <span style={{ color: t.accent }}>✨</span>
                 </h2>
                 <p style={{ fontSize: '0.82rem', color: t.sub }}>Upload foto struk atau ketik keterangan</p>
               </div>

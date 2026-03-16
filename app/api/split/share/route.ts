@@ -1,14 +1,17 @@
 import { NextResponse } from 'next/server';
+import { auth } from '@/auth';
 import prisma from '../../../../lib/prisma';
 
 export async function POST(request: Request) {
   try {
+    const session = await auth();
     const { data } = await request.json();
     if (!data) return NextResponse.json({ error: 'No data provided' }, { status: 400 });
 
     // Use nested write to create bill, items, and members in one transaction
     const sharedBill = await prisma.sharedBill.create({
       data: {
+        userId: session?.user?.id,
         subtotal: data.subtotal,
         tax: data.tax,
         service: data.service,

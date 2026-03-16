@@ -19,6 +19,15 @@ Keuanganku adalah aplikasi pencatat pengeluaran bertenaga AI yang dirancang untu
 ### Sistem Validasi Dokumen
 ![Validation Page](public/validation_page.png)
 
+### Fitur Split Bill (Premium UI)
+![Split Bill Main](public/split_bill_main.png)
+
+### Split Bill & Checklist Pengeluaran
+![Split Bill Checklist](public/split_bill_checklist.png)
+
+### Premium OpenGraph Image (Light Mode)
+![OG Image Redesign](public/og_preview.png)
+
 ## 🚀 Fitur Utama
 
 - **📝 Pencatatan Cepat**: Catat transaksi melalui antarmuka web yang modern atau langsung lewat WhatsApp.
@@ -28,6 +37,7 @@ Keuanganku adalah aplikasi pencatat pengeluaran bertenaga AI yang dirancang untu
 - **📊 Visualisasi Data**: Grafik interaktif untuk memantau pemasukan dan pengeluaran Anda.
 - **📱 Responsive Design**: Tampilan yang optimal baik di desktop maupun perangkat mobile.
 - **🌙 Dark Mode**: Dukungan mode gelap yang nyaman di mata.
+- **📈 Integrasi Split Bill**: Catat bagian tagihan Anda langsung dari halaman split bill ke dashboard pengeluaran dengan fitur checklist item.
 
 ## 🛠️ Teknologi yang Digunakan
 

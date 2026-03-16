@@ -46,22 +46,52 @@ client.on('message', async msg => {
     if (!msg.body && !msg.hasMedia) return;
     if (msg.isStatus) return;
 
-    // Nomor yang diizinkan (dalam format WhatsApp)
-    // - Nomor bot sendiri akan otomatis dikenali oleh msg.from === msg.to jika chat ke diri sendiri
-    // - Atau via '6285175319097@c.us'
-    const ALLOWED_NUMBERS = [
-        client.info.wid._serialized, // Nomor bot sendiri
-        '6285175319097@c.us'         // Nomor whitelist yang diminta
-    ];
+    // const ALLOWED_NUMBERS = [
+    //     client.info.wid._serialized, // Nomor bot sendiri
+    //     '6285175319097@c.us'         // Nomor whitelist yang diminta
+    // ];
 
-    // Cek apakah pengirim ada dalam whitelist
-    if (!ALLOWED_NUMBERS.includes(msg.from)) {
-        console.log(`[!] Mengabaikan pesan dari nomor tidak dikenal: ${msg.from}`);
-        return;
-    }
+    // // Cek apakah pengirim ada dalam whitelist
+    // if (!ALLOWED_NUMBERS.includes(msg.from)) {
+    //     console.log(`[!] Mengabaikan pesan dari nomor tidak dikenal: ${msg.from}`);
+    //     return;
+    // }
+
 
     const rawInput = msg.body;
     console.log(`[+] Pesan masuk dari ${msg.from}: ${rawInput} (Media: ${msg.hasMedia})`);
+
+    // 1. Cek Komando Validasi
+    if (rawInput && rawInput.toUpperCase().startsWith('VALIDASI ')) {
+        const token = rawInput.split(' ')[1];
+        try {
+            const user = await prisma.user.findUnique({ where: { waToken: token } });
+            if (user) {
+                await prisma.user.update({
+                    where: { id: user.id },
+                    data: { waNumber: msg.from, waToken: null } // Hapus token setelah divalidasi
+                });
+                msg.reply(`✅ Berhasil! Akun WhatsApp Anda sekarang terhubung dengan akun *${user.name || user.email}*. Sekarang Anda bisa mencatat transaksi langsung dari sini.`);
+                return;
+            } else {
+                msg.reply('❌ Token validasi tidak ditemukan atau sudah kedaluwarsa.');
+                return;
+            }
+        } catch (err) {
+            console.error('Error validation:', err);
+            msg.reply('❌ Terjadi kesalahan saat memproses validasi.');
+            return;
+        }
+    }
+
+    // 2. Cari User berdasarkan nomor WA
+    const user = await prisma.user.findUnique({ where: { waNumber: msg.from } });
+    if (!user) {
+        console.log(`[!] Mengabaikan pesan dari nomor tidak terdaftar: ${msg.from}`);
+        // Optional: bisa kasih pesan instruksi
+        // msg.reply('Halo! Nomor ini belum terhubung. Silakan ambil token validasi dari dashboard aplikasi.');
+        return;
+    }
 
     const currentMonth = new Date().getMonth();
     const currentYear = new Date().getFullYear();
@@ -82,10 +112,11 @@ client.on('message', async msg => {
                             const cat = p.category.toLowerCase().trim();
                             return prisma.budget.upsert({
                                 where: { 
-                                    category_month_year: {
+                                    category_month_year_userId: {
                                         category: cat,
                                         month: currentMonth + 1,
-                                        year: currentYear
+                                        year: currentYear,
+                                        userId: user.id
                                     }
                                 },
                                 update: { amount: parseFloat(p.amount) },
@@ -93,7 +124,8 @@ client.on('message', async msg => {
                                     category: cat, 
                                     amount: parseFloat(p.amount),
                                     month: currentMonth + 1,
-                                    year: currentYear
+                                    year: currentYear,
+                                    userId: user.id
                                 }
                             });
                         } else {
@@ -106,7 +138,8 @@ client.on('message', async msg => {
                                     category: p.category || 'lainnya',
                                     type: p.type,
                                     rawInput: p.rawInput,
-                                    source: 'whatsapp'
+                                    source: 'whatsapp',
+                                    userId: user.id
                                 }
                             });
                         }
@@ -115,8 +148,8 @@ client.on('message', async msg => {
                 
                 // Fetch updated state for warnings
                 const [allBudgets, allExpenses] = await Promise.all([
-                    prisma.budget.findMany({ where: { month: currentMonth + 1, year: currentYear } }),
-                    prisma.expense.findMany()
+                    prisma.budget.findMany({ where: { month: currentMonth + 1, year: currentYear, userId: user.id } }),
+                    prisma.expense.findMany({ where: { userId: user.id } })
                 ]);
 
                 const thisMonthExpenses = allExpenses.filter((e: any) => new Date(e.createdAt).getMonth() === currentMonth && new Date(e.createdAt).getFullYear() === currentYear && e.type === 'expense');
@@ -166,9 +199,9 @@ client.on('message', async msg => {
 
         // Fetch context for budgets
         const [allBudgets, allExpenses] = await Promise.all([
-            prisma.budget.findMany(),
+            prisma.budget.findMany({ where: { userId: user.id } }),
             prisma.expense.findMany({
-                where: { type: 'expense' }
+                where: { type: 'expense', userId: user.id }
             })
         ]);
         const thisMonthExpenses = allExpenses.filter((e: any) => new Date(e.createdAt).getMonth() === currentMonth && new Date(e.createdAt).getFullYear() === currentYear);
@@ -237,6 +270,7 @@ client.on('message', async msg => {
             console.log(`[+] User bertanya (query). Menyiapkan data untuk dijawab Gemini...`);
             try {
                 const recentExpenses = await prisma.expense.findMany({
+                    where: { userId: user.id },
                     orderBy: { createdAt: 'desc' },
                     take: 100
                 });
@@ -300,15 +334,16 @@ Jawab singkat, akurat berdasar data di atas.`;
                         category: p.category || 'lainnya',
                         type: p.type === 'income' ? 'income' : 'expense',
                         rawInput: rawInput,
-                        source: 'whatsapp'
+                        source: 'whatsapp',
+                        userId: user.id
                     }
                 }))
             );
 
             // Fetch updated state for warnings
             const [allBudgets, allExpenses] = await Promise.all([
-                prisma.budget.findMany({ where: { month: currentMonth + 1, year: currentYear } }),
-                prisma.expense.findMany()
+                prisma.budget.findMany({ where: { month: currentMonth + 1, year: currentYear, userId: user.id } }),
+                prisma.expense.findMany({ where: { userId: user.id } })
             ]);
 
             const thisMonthExpenses = allExpenses.filter((e: any) => 
